@@ -154,3 +154,5 @@ class CoinGame(gym.Env):
             for y in range(0, self.screen_height, BLOCKSIZE):
                 rect = pygame.Rect(x, y, BLOCKSIZE, BLOCKSIZE)
                 pygame.draw.rect(self.screen, (255, 255, 255), rect, 1)
+        
+        #Comment

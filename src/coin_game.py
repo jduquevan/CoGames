@@ -1,4 +1,3 @@
-from tarfile import BLOCKSIZE
 import numpy as np
 
 import gym
@@ -155,4 +154,3 @@ class CoinGame(gym.Env):
                 rect = pygame.Rect(x, y, BLOCKSIZE, BLOCKSIZE)
                 pygame.draw.rect(self.screen, (255, 255, 255), rect, 1)
         
-        #Comment

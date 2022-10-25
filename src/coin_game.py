@@ -71,17 +71,11 @@ class CoinGame(gym.Env):
         a_1_x, a_1_y = self.a_1//self.cols, self.a_1%self.cols
         a_2_x, a_2_y = self.a_2//self.cols, self.a_2%self.cols
 
-        print("A1: ", a_1_x, " ", a_1_y)
-        print("A2: ", a_2_x, " ", a_2_y)
-
         self.grid[a_1_x, a_1_y] = EMPTY
         self.grid[a_2_x, a_2_y] = EMPTY
 
         new_a_1_y, new_a_1_x = self.calculate_pos(a_1_x, a_1_y, a1)
         new_a_2_y, new_a_2_x = self.calculate_pos(a_2_x, a_2_y, a2)
-
-        print("New A1: ", new_a_1_x, " ", new_a_1_y)
-        print("New A2: ", new_a_2_x, " ", new_a_2_y)
 
         self.a_1 = new_a_1_y*self.cols + new_a_1_x
         self.a_2 = new_a_2_y*self.cols + new_a_2_x

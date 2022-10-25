@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 
-class NashDQNAgent():
+class NashACAgent():
 
     def __init__(self):
         pass

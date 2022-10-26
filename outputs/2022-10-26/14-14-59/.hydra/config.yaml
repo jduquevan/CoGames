@@ -1,0 +1,10 @@
+agent:
+  gamma: 0.999
+  eps_final: 0
+  eps_init: 1
+  eps_decay: 200
+  target_steps: 10
+  buffer_size: 10000
+  model_kwargs:
+    hidden_size: 40
+    num_layers: 0

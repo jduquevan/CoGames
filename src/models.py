@@ -38,7 +38,7 @@ class MLPModel(nn.Module):
     def __init__(self, in_size, out_size, hidden_size, num_layers=0, batch_norm=False):
         super(MLPModel, self).__init__()
 
-        self in_size  in_size
+        self.in_size = in_size
         self.out_size = out_size
         self.hidden_size = hidden_size
         self.num_layers = num_layers

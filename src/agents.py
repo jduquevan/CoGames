@@ -11,6 +11,7 @@ class DQNAgent():
 
     def __init__(self,
                  device,
+                 gamma,
                  n_actions,
                  eps_init,
                  eps_final,
@@ -24,6 +25,7 @@ class DQNAgent():
                  batch_size):
         self.steps_done = 0
         self.device = device
+        self.gamma = gamma
         self.n_actions = n_actions
         self.eps_init = eps_init
         self.eps_final = eps_final

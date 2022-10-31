@@ -13,6 +13,7 @@ from agents import DQNAgent
 def main(args: DictConfig):
     config: Dict[str, Any] = OmegaConf.to_container(args, resolve=True)
     print(config)
+    agent = DQNAgent(**config["dqn_agent"])
 
 
 

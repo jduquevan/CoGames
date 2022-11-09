@@ -51,7 +51,7 @@ class MLPModel(nn.Module):
             self.hidden.append(nn.Linear(self.hidden_size, self.hidden_size))
             if self.batch_norm:
                 self.bns.append(nn.BatchNorm1d(hidden_size))
-        self.out_layer = nn.Linear(self.in_size, self.hidden_size)
+        self.out_layer = nn.Linear(self.hidden_size, self.out_size)
         self.softmax = nn.Softmax(dim=1)
 
     def forward(self, x):

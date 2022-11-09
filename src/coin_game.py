@@ -45,7 +45,7 @@ class CoinGame(gym.Env):
         self.render_mode = render_mode
 
     def init_grid(self, positions=None):
-        if positions:
+        if positions is not None:
             pass
         elif self.rows==1 and self.cols==2:
             positions = np.array([0, 1, 1])
@@ -82,6 +82,8 @@ class CoinGame(gym.Env):
 
         r1, r2 = 0, 0
 
+        print("Coin: ", self.curr_coin)
+
         if self.a_1==self.coin or self.a_2==self.coin:
             terminated = True
             # A1 has coin 1
@@ -96,6 +98,11 @@ class CoinGame(gym.Env):
             # A2 has coin 1
             if self.a_2==self.coin and self.curr_coin==COIN_1:
                 r1, r2 = -1, 1
+
+        if self.curr_coin==COIN_1:
+            self.curr_coin=COIN_2
+        else:
+            self.curr_coin=COIN_1
 
         reward = np.array([r1, r2])
 

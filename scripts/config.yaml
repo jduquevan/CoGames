@@ -6,8 +6,11 @@ dqn_agent:
   gamma: 0.999
   eps_final: 0
   eps_init: 1
-  eps_decay: 200
-  target_steps: 10
+  eps_decay: 500
   buffer_size: 10000
   hidden_size: 40
   num_layers: 0
+  batch_norm: False
+  model_type: "mlp"
+  batch_size: 128
+target_steps: 10

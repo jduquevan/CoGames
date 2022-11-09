@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.optim as optim
 import numpy as np
 
 from functools import reduce
@@ -21,8 +22,9 @@ class DQNAgent():
                  batch_norm, 
                  obs_shape,
                  buffer_size, 
-                 model_type,
-                 batch_size):
+                 model_type="mlp",
+                 opt_type="rmsprop",
+                 batch_size=128):
         self.steps_done = 0
         self.device = device
         self.gamma = gamma
@@ -52,6 +54,9 @@ class DQNAgent():
                                   batch_norm=self.batch_norm)
         else:
             raise Exception("Not supported model type for DQN Agent")
+
+        if opt_type.lower() == "rmsprop":
+            self.optimizer = optim.RMSprop(self.q_net.parameters())
         
         self.t_net.load_state_dict(self.q_net.state_dict())
 
@@ -66,7 +71,7 @@ class DQNAgent():
         else:
             return torch.tensor([[np.random.randint(0, self.n_actions)]], device=self.device, dtype=torch.long)
 
-    def optimize_model(self, optimizer):
+    def optimize_model(self):
         if len(self.buffer) < self.batch_size:
             return
         transitions = self.buffer.sample(self.batch_size)
@@ -98,11 +103,12 @@ class DQNAgent():
         loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
 
         # Optimize the model
-        optimizer.zero_grad()
+        self.optimizer.zero_grad()
         loss.backward()
+        # print("loss: ", loss.item())
         for param in self.q_net.parameters():
             param.grad.data.clamp_(-1, 1)
-        optimizer.step()
+        self.optimizer.step()
 
 
     def target(self):

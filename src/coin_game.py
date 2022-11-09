@@ -82,8 +82,6 @@ class CoinGame(gym.Env):
 
         r1, r2 = 0, 0
 
-        print("Coin: ", self.curr_coin)
-
         if self.a_1==self.coin or self.a_2==self.coin:
             terminated = True
             # A1 has coin 1

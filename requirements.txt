@@ -1,0 +1,5 @@
+gym
+wandb
+numpy
+hydra-core
+torch

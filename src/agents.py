@@ -6,7 +6,7 @@ import numpy as np
 
 from functools import reduce
 
-from models import MLPModel, ReplayMemory, Transition
+from .models import MLPModel, ReplayMemory, Transition
 
 class DQNAgent():
 
@@ -27,6 +27,7 @@ class DQNAgent():
                  batch_size=128):
         self.steps_done = 0
         self.device = device
+        print("Device: ", self.device)
         self.gamma = gamma
         self.n_actions = n_actions
         self.eps_init = eps_init
@@ -59,6 +60,8 @@ class DQNAgent():
             self.optimizer = optim.RMSprop(self.q_net.parameters())
         
         self.t_net.load_state_dict(self.q_net.state_dict())
+        self.q_net.to(self.device)
+        self.t_net.to(self.device)
 
     def select_action(self, state):
         sample = np.random.uniform(0, 1)

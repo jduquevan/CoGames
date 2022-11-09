@@ -2,22 +2,27 @@ import hydra
 import os
 import sys
 import torch
+import numpy as np
 
 from itertools import count
 from omegaconf import DictConfig, OmegaConf
 from typing import Any, Dict, Optional
 
-from coin_game import CoinGame
-from agents import DQNAgent
+from .coin_game import CoinGame
+from .agents import DQNAgent
 
 
 @hydra.main(config_path="../scripts", config_name="config")
 def main(args: DictConfig):
+
     config: Dict[str, Any] = OmegaConf.to_container(args, resolve=True)
-    print(config)
+    print(config["seed"])
+    print(type(config["seed"]))
+    np.random.seed(config["seed"])
+    torch.manual_seed(config["seed"])
+
     env = CoinGame(2, 1)
     obs, _ = env.reset()
-    print("Observation: ", obs)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     agent_1 = DQNAgent(**config["dqn_agent"], 
@@ -42,13 +47,9 @@ def main(args: DictConfig):
         obs, _ = env.reset()
         state =  torch.tensor(obs, dtype=torch.float32 , device=device)
         for t in count():
-            #print("state: ", state)
             # Select and perform an action
             action_1 = agent_1.select_action(state)
             action_2 = agent_2.select_action(state)
-
-            #print("action_1: ", action_1)
-            #print("action_2: ", action_2)
 
             curr_state, rewards, done, _, _ = env.step((action_1.item(), action_2.item()))
             reward_1 = torch.tensor([rewards[0]], dtype=torch.float32 , device=device)
@@ -62,8 +63,7 @@ def main(args: DictConfig):
 
             avg_1 = sum(avg_reward_1)/len(avg_reward_1)
             avg_2 = sum(avg_reward_2)/len(avg_reward_2)
-            #print("avg_reward 1: ", avg_reward_1)
-            #print("avg_reward 2: ", avg_reward_2)
+
             # Observe new state
             if not done:
                 next_state = torch.tensor(curr_state, dtype=torch.float32 , device=device)
@@ -71,7 +71,6 @@ def main(args: DictConfig):
                 #print("rewards: ", rewards)
                 next_state = None
 
-            #print("_________________________________________________________________________________")
             # Store the transition in memory
             agent_1.buffer.push(state, action_1, next_state, reward_1)
             agent_2.buffer.push(state, action_2, next_state, reward_2)

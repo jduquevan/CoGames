@@ -2,6 +2,8 @@ hydra:
   output_subdir: null
   run:
     dir: ./
+
+seed: 1
 dqn_agent:
   gamma: 0.999
   eps_final: 0

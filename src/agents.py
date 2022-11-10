@@ -24,10 +24,11 @@ class DQNAgent():
                  buffer_size, 
                  model_type="mlp",
                  opt_type="rmsprop",
-                 batch_size=128):
+                 batch_size=128,
+                 use_history=False,
+                 history_len=0):
         self.steps_done = 0
         self.device = device
-        print("Device: ", self.device)
         self.gamma = gamma
         self.n_actions = n_actions
         self.eps_init = eps_init
@@ -38,6 +39,8 @@ class DQNAgent():
         self.batch_norm = batch_norm
         self.obs_shape = obs_shape
         self.batch_size = batch_size
+        self.use_history = use_history
+        self.history_len = history_len
         self.obs_size = reduce(lambda a, b: a * b, self.obs_shape)
 
         self.buffer = ReplayMemory(buffer_size)
@@ -112,6 +115,8 @@ class DQNAgent():
         for param in self.q_net.parameters():
             param.grad.data.clamp_(-1, 1)
         self.optimizer.step()
+
+        return loss.item()
 
 
     def target(self):

@@ -37,4 +37,4 @@ module purge
 eval "$(conda shell.bash hook)"
 conda activate cogames
 
-python -m src.run seed=${1}
+python -m src.run seed=${1} dqn_agent.eps_decay=${2}

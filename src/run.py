@@ -41,7 +41,7 @@ def main(args: DictConfig):
     target_steps = config["target_steps"]
     reward_window = config["reward_window"]
     
-    num_episodes = 50000
+    num_episodes = 100000
     avg_reward_1 = []
     avg_reward_2 = []
     wandb_info = {}
@@ -86,13 +86,15 @@ def main(args: DictConfig):
             state = next_state
 
             # Perform one step of the optimization (on the policy network)
-            agent_1.optimize_model()
-            agent_2.optimize_model()
+            loss_1 = agent_1.optimize_model()
+            loss_2 = agent_2.optimize_model()
 
             cum_steps+=1
-            wandb_info{'cum_steps': cum_steps}
-            wandb_info{'agent_1_avg_reward': avg_1}
-            wandb_info{'agent_2_avg_reward': avg_2}
+            wandb_info['cum_steps'] = cum_steps
+            wandb_info['agent_1_avg_reward'] = avg_1
+            wandb_info['agent_2_avg_reward'] = avg_2
+            wandb_info['agent_1_loss'] = loss_1
+            wandb_info['agent_2_loss'] = loss_2
 
             wandb.log(wandb_info)
             

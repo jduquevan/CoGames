@@ -1,6 +1,6 @@
 #!/bin/bash
 echo "${BASH_VERSION}"
-SEEDS=(0)
+SEEDS=(0 1 2)
 
 for seed in ${SEEDS[@]}; do
     export WANDB_NAME=dqn_${seed}

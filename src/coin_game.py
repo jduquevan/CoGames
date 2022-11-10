@@ -97,11 +97,6 @@ class CoinGame(gym.Env):
             if self.a_2==self.coin and self.curr_coin==COIN_1:
                 r1, r2 = -1, 1
 
-        if self.curr_coin==COIN_1:
-            self.curr_coin=COIN_2
-        else:
-            self.curr_coin=COIN_1
-
         reward = np.array([r1, r2])
 
         if self.a_1==self.coin and self.a_2==self.coin:
@@ -112,7 +107,14 @@ class CoinGame(gym.Env):
             self.grid[new_a_1_y, new_a_1_x] = AGENT_1
             self.grid[new_a_2_y, new_a_2_x] = AGENT_2
 
-        return self.grid, reward, terminated, False, {}
+        if terminated:
+            if self.curr_coin==COIN_1:
+                self.curr_coin=COIN_2
+            else:
+                self.curr_coin=COIN_1
+            self.grid = self.reset()[0]
+
+        return self.grid, reward, False, False, {}
 
     def calculate_pos(self, a_y, a_x, a):
         if a==UP:

@@ -2,6 +2,7 @@ import hydra
 import os
 import sys
 import torch
+import wandb
 import numpy as np
 
 from itertools import count
@@ -21,6 +22,8 @@ def main(args: DictConfig):
     np.random.seed(config["seed"])
     torch.manual_seed(config["seed"])
 
+    wandb.init(config=config, project="Co-games", reinit=True, anonymous="allow")
+
     env = CoinGame(2, 1)
     obs, _ = env.reset()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -36,10 +39,14 @@ def main(args: DictConfig):
                      obs_shape=obs.shape)
 
     target_steps = config["target_steps"]
+    reward_window = config["reward_window"]
     
-    num_episodes = 5000
+    num_episodes = 50000
     avg_reward_1 = []
     avg_reward_2 = []
+    wandb_info = {}
+    cum_steps = 0
+
     for i_episode in range(num_episodes):
         # Initialize the environment and state
         episode_durations = []
@@ -58,8 +65,8 @@ def main(args: DictConfig):
             avg_reward_1.insert(0, rewards[0])
             avg_reward_2.insert(0, rewards[1])
 
-            avg_reward_1 = avg_reward_1[0:10]
-            avg_reward_2 = avg_reward_2[0:10]
+            avg_reward_1 = avg_reward_1[0:reward_window]
+            avg_reward_2 = avg_reward_2[0:reward_window]
 
             avg_1 = sum(avg_reward_1)/len(avg_reward_1)
             avg_2 = sum(avg_reward_2)/len(avg_reward_2)
@@ -81,6 +88,14 @@ def main(args: DictConfig):
             # Perform one step of the optimization (on the policy network)
             agent_1.optimize_model()
             agent_2.optimize_model()
+
+            cum_steps+=1
+            wandb_info{'cum_steps': cum_steps}
+            wandb_info{'agent_1_avg_reward': avg_1}
+            wandb_info{'agent_2_avg_reward': avg_2}
+
+            wandb.log(wandb_info)
+            
             if done:
                 episode_durations.append(t + 1)
                 break

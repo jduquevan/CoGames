@@ -27,11 +27,30 @@ class ReplayMemory(object):
 
 class ConvModel(nn.Module):
 
-    def __init__(self):
-        pass
+    def __init__(self, in_channels, h, w, out_size):
+        super(ConvModel, self).__init__()
+
+        self.conv1 = nn.Conv2d(in_channels, 16, kernel_size=2, stride=1, padding=1)
+        self.bn1 = nn.BatchNorm2d(16)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=2, stride=1)
+        self.bn2 = nn.BatchNorm2d(32)
+
+        linear_input_size = self.linear_input_size(in_channels, h, w)
+
+        self.head = nn.Linear(linear_input_size, out_size)
+
+    def linear_input_size(self, in_channels, h, w):
+        x = torch.ones((1, in_channels, h, w))
+        x = F.relu(self.bn1(self.conv1(x)))
+        x = F.relu(self.bn2(self.conv2(x))).flatten()
+
+        return x.shape[0]
 
     def forward(self, x):
-        pass
+        x = F.relu(self.bn1(self.conv1(x)))
+        x = F.relu(self.bn2(self.conv2(x)))
+        
+        return self.head(x.view(x.size(0), -1))
 
 class MLPModel(nn.Module):
 

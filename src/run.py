@@ -17,8 +17,6 @@ from .agents import DQNAgent
 def main(args: DictConfig):
 
     config: Dict[str, Any] = OmegaConf.to_container(args, resolve=True)
-    print(config["seed"])
-    print(type(config["seed"]))
     np.random.seed(config["seed"])
     torch.manual_seed(config["seed"])
 
@@ -40,6 +38,7 @@ def main(args: DictConfig):
 
     target_steps = config["target_steps"]
     reward_window = config["reward_window"]
+    use_history = config["dqn_agent"]["use_history"]
     
     num_episodes = 100000
     avg_reward_1 = []
@@ -53,7 +52,15 @@ def main(args: DictConfig):
         episode_rewards = []
         obs, _ = env.reset()
         state =  torch.tensor(obs, dtype=torch.float32 , device=device)
+
+        actions = torch.tensor([-1, -1])
+        agent_1.update_history(actions, state)
+        agent_2.update_history(actions, state)
+
         for t in count():
+            if use_history:
+                state = agent_1.aggregate_history().float()
+                state = torch.unsqueeze(state, dim=0)
             # Select and perform an action
             action_1 = agent_1.select_action(state)
             action_2 = agent_2.select_action(state)
@@ -73,7 +80,14 @@ def main(args: DictConfig):
 
             # Observe new state
             if not done:
-                next_state = torch.tensor(curr_state, dtype=torch.float32 , device=device)
+                # Aggregate histories if history is used
+                if use_history:
+                    actions = torch.tensor([action_1, action_2])
+                    agent_1.update_history(actions, curr_state)
+                    agent_2.update_history(actions, curr_state)
+                    next_state = agent_1.aggregate_history()
+                else:
+                    next_state = torch.tensor(curr_state, dtype=torch.float32 , device=device)
             else:
                 #print("rewards: ", rewards)
                 next_state = None
@@ -89,12 +103,14 @@ def main(args: DictConfig):
             loss_1 = agent_1.optimize_model()
             loss_2 = agent_2.optimize_model()
 
+            # Logging info
             cum_steps+=1
             wandb_info['cum_steps'] = cum_steps
             wandb_info['agent_1_avg_reward'] = avg_1
             wandb_info['agent_2_avg_reward'] = avg_2
             wandb_info['agent_1_loss'] = loss_1
             wandb_info['agent_2_loss'] = loss_2
+            wandb_info['total_avg_reward'] = avg_1 + avg_2
 
             wandb.log(wandb_info)
             

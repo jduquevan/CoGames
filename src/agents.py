@@ -6,7 +6,7 @@ import numpy as np
 
 from functools import reduce
 
-from .models import MLPModel, ReplayMemory, Transition
+from .models import MLPModel, ConvModel, ReplayMemory, Transition
 
 class DQNAgent():
 
@@ -41,11 +41,16 @@ class DQNAgent():
         self.batch_size = batch_size
         self.use_history = use_history
         self.history_len = history_len
+        self.model_type = model_type.lower()
         self.obs_size = reduce(lambda a, b: a * b, self.obs_shape)
 
         self.buffer = ReplayMemory(buffer_size)
 
-        if model_type.lower() == "mlp":
+        if self.use_history:
+            self.obs_history = []
+            self.act_history = []
+        
+        if self.model_type == "mlp":
             self.q_net = MLPModel(in_size=self.obs_size,
                                   out_size=self.n_actions,
                                   hidden_size=self.hidden_size,
@@ -56,6 +61,15 @@ class DQNAgent():
                                   hidden_size=self.hidden_size,
                                   num_layers=self.num_layers,
                                   batch_norm=self.batch_norm)
+        elif self.model_type == "conv":
+            self.q_net = ConvModel(in_channels=history_len,
+                                  h=self.obs_shape[0],
+                                  w=self.obs_shape[1],
+                                  out_size=self.n_actions)
+            self.t_net = ConvModel(in_channels=history_len,
+                                  h=self.obs_shape[0],
+                                  w=self.obs_shape[1],
+                                  out_size=self.n_actions)
         else:
             raise Exception("Not supported model type for DQN Agent")
 
@@ -65,6 +79,18 @@ class DQNAgent():
         self.t_net.load_state_dict(self.q_net.state_dict())
         self.q_net.to(self.device)
         self.t_net.to(self.device)
+
+    def update_history(self, act, state):
+        self.act_history.insert(0, torch.tensor(act).to(self.device))
+        self.obs_history.insert(0,  torch.tensor(state).to(self.device))
+        self.act_history = self.act_history[0:self.history_len]
+        self.obs_history = self.obs_history[0:self.history_len]
+
+    def aggregate_history(self):
+        curr_hist_delta = self.history_len - len(self.obs_history)
+        for i in range(curr_hist_delta):
+            self.obs_history.append(torch.zeros(self.obs_shape).to(self.device))
+        return torch.stack(self.obs_history)
 
     def select_action(self, state):
         sample = np.random.uniform(0, 1)
@@ -88,8 +114,8 @@ class DQNAgent():
         # (a final state would've been the one after which simulation ended)
         non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
                                             batch.next_state)), device=self.device, dtype=torch.bool)
-        non_final_next_states = torch.cat([s for s in batch.next_state
-                                                    if s is not None])
+        non_final_next_states = torch.stack([s for s in batch.next_state
+                                                    if s is not None]).float()
         state_batch = torch.cat(batch.state)
         action_batch = torch.cat(batch.action)
         reward_batch = torch.cat(batch.reward)

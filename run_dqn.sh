@@ -1,5 +1,4 @@
 #!/bin/bash
-echo "${BASH_VERSION}"
 SEEDS=(1)
 EPS_DECAYS=(500 1000 5000 10000 50000)
 

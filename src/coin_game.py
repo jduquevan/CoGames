@@ -89,7 +89,7 @@ class CoinGame(gym.Env):
                 r1 = 1
             # A2 has coin 2
             if self.a_2==self.coin and self.curr_coin==COIN_2:
-                r1 = 1
+                r2 = 1
             # A1 has coin 2
             if self.a_1==self.coin and self.curr_coin==COIN_2:
                 r1, r2 = 1, -1

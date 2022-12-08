@@ -6,18 +6,30 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from collections import namedtuple, deque
+from torch.distributions import Normal
 
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
+A2CTransition = namedtuple('Transition',
+                           ('state', 'action','log_prob', 'dist', 'next_state', 'reward'))
+
+def initialize_uniformly(layer: nn.Linear, init_w: float = 3e-3):
+    """Initialize the weights and bias in [-init_w, init_w]."""
+    layer.weight.data.uniform_(-init_w, init_w)
+    layer.bias.data.uniform_(-init_w, init_w)
 
 class ReplayMemory(object):
 
-    def __init__(self, capacity):
+    def __init__(self, capacity, transition_type):
         self.memory = deque([],maxlen=capacity)
+        self.transition_type = transition_type
 
     def push(self, *args):
         """Save a transition"""
-        self.memory.append(Transition(*args))
+        if self.transition_type == "a2c":
+            self.memory.append(A2CTransition(*args))
+        else:
+            elf.memory.append(Transition(*args))
 
     def sample(self, batch_size):
         return random.sample(self.memory, batch_size)
@@ -81,3 +93,21 @@ class MLPModel(nn.Module):
             else:
                 x = F.relu(self.hidden[i](x))
         return self.softmax(self.out_layer(x))
+
+class Actor(nn.Module):
+    def __init__(self, in_size, out_size, hidden_size):
+        super(Actor, self).__init__()
+
+        self.in_size = in_size
+        self.out_size = out_size
+        self.hidden_size = hidden_size
+        
+        self.hidden1 = nn.Linear(in_size, hidden_size)
+        self.out_layer = nn.Linear(hidden_size, out_size)     
+        
+
+    def forward(self, state):
+        x = F.relu(self.hidden1(state))
+        x = F.softmax(self.out_layer(x))
+        
+        return x

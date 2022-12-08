@@ -1,6 +1,6 @@
 #!/bin/bash
-SEEDS=(1)
-EPS_DECAYS=(500 1000 5000 10000 50000)
+SEEDS=(1 2)
+EPS_DECAYS=(5000 10000 50000)
 
 for seed in ${SEEDS[@]}; do
     for eps_decay in ${EPS_DECAYS[@]}; do

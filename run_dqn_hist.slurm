@@ -39,3 +39,5 @@ conda activate cogames
 
 python -m src.run seed=${1} dqn_agent.eps_decay=${2} dqn_agent.use_history=True \
     dqn_agent.model_type="conv" dqn_agent.history_len=${3}
+
+#python -m src.run seed=1 agent_type="a2c" use_history=True a2c_agent.model_type="conv" a2c_agent.history_len=2

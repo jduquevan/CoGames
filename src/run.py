@@ -124,10 +124,14 @@ def run_a2c(env, obs, agent_1, agent_2, target_steps, reward_window, device, use
             dist_1 = agent_1.select_action(state)
             dist_2 = agent_2.select_action(state)
 
-            action_1 = torch.tensor([np.random.choice(N_ACTIONS, p=dist_1.cpu().detach().numpy())], device=device)
-            action_2 = torch.tensor([np.random.choice(N_ACTIONS, p=dist_2.cpu().detach().numpy())], device=device)
-            log_prob_1 = torch.tensor(torch.log(dist_1[action_1]), dtype=torch.float32 , device=device)
-            log_prob_2 = torch.tensor(torch.log(dist_2[action_2]), dtype=torch.float32 , device=device)
+            action_1 = torch.tensor([np.random.choice(N_ACTIONS, p=dist_1.cpu().detach().numpy())],
+                                    requires_grad=False,
+                                    device=device)
+            action_2 = torch.tensor([np.random.choice(N_ACTIONS, p=dist_2.cpu().detach().numpy())],
+                                    requires_grad=False, 
+                                    device=device)
+            log_prob_1 = torch.log(dist_1[action_1])
+            log_prob_2 = torch.log(dist_2[action_2])
 
             curr_state, rewards, done, _, _ = env.step((action_1.item(), action_2.item()))
             reward_1 = torch.tensor([rewards[0]], dtype=torch.float32 , device=device)
@@ -146,10 +150,11 @@ def run_a2c(env, obs, agent_1, agent_2, target_steps, reward_window, device, use
             if not done:
                 # Aggregate histories if history is used
                 if use_history:
-                    actions = torch.tensor([action_1, action_2])
+                    actions = torch.cat((action_1, action_2), 0)
                     agent_1.update_history(actions, curr_state)
                     agent_2.update_history(actions, curr_state)
                     next_state = agent_1.aggregate_history()
+                    next_state = torch.tensor(next_state, dtype=torch.float32 , device=device)
                 else:
                     next_state = torch.tensor(curr_state, dtype=torch.float32 , device=device)
             else:
@@ -157,23 +162,27 @@ def run_a2c(env, obs, agent_1, agent_2, target_steps, reward_window, device, use
                 next_state = None
 
             # Store the transition in memory
-            agent_1.buffer.push(state, action_1, log_prob_1, dist_1, next_state, reward_1)
-            agent_2.buffer.push(state, action_2, log_prob_2, dist_2, next_state, reward_2)
+            # agent_1.buffer.push(state, action_1, log_prob_1, torch.unsqueeze(dist_1, 0), next_state, reward_1)
+            # agent_2.buffer.push(state, action_2, log_prob_2, torch.unsqueeze(dist_2, 0), next_state, reward_2)
+            agent_1.transition = [state, log_prob_1, next_state, reward_1, done, action_1]
+            agent_2.transition = [state, log_prob_2, next_state, reward_2, done, action_2]
 
             # Move to the next state
             state = next_state
 
             # Perform one step of the optimization (on the policy network)
-            loss_1 = agent_1.optimize_model()
-            loss_2 = agent_2.optimize_model()
+            policy_loss_1, value_loss_1 = agent_1.optimize_model()
+            policy_loss_2, value_loss_2 = agent_2.optimize_model()
 
             # Logging info
             cum_steps+=1
             wandb_info['cum_steps'] = cum_steps
             wandb_info['agent_1_avg_reward'] = avg_1
             wandb_info['agent_2_avg_reward'] = avg_2
-            wandb_info['agent_1_loss'] = loss_1
-            wandb_info['agent_2_loss'] = loss_2
+            wandb_info['agent_1_policy_loss'] = policy_loss_1
+            wandb_info['agent_1_value_loss'] = value_loss_1
+            wandb_info['agent_2_policy_loss'] = policy_loss_2
+            wandb_info['agent_2_value_loss'] = value_loss_2
             wandb_info['total_avg_reward'] = avg_1 + avg_2
 
             wandb.log(wandb_info)

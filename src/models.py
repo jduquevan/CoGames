@@ -107,7 +107,6 @@ class Actor(nn.Module):
         
 
     def forward(self, state):
-        x = F.relu(self.hidden1(state))
-        x = F.softmax(self.out_layer(x))
+        x = F.relu(self.hidden1(state), inplace=False) 
         
-        return x
+        return F.softmax(self.out_layer(x.clone()).clone(), dim=0)

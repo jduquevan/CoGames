@@ -40,6 +40,7 @@ class BaseAgent():
         self.history_len = history_len
         self.buffer_size =buffer_size
         self.model_type = model_type.lower()
+        self.opt_type = opt_type.lower()
         self.obs_size = history_len * reduce(lambda a, b: a * b, self.obs_shape)
 
         self.obs_history = []
@@ -170,10 +171,14 @@ class A2CAgent():
         self.buffer = ReplayMemory(self.buffer_size, "a2c")
         self.actor = Actor(self.obs_size, self.n_actions, self.hidden_size)
         self.actor.to(self.device)
+        self.transition: list = list()
+
+        if self.opt_type.lower() == "rmsprop":
+            self.actor_optimizer = optim.RMSprop(self.actor.parameters())
 
     def update_history(self, act, state):
-        self.act_history.insert(0, torch.tensor(act).to(self.device))
-        self.obs_history.insert(0,  torch.tensor(state).to(self.device))
+        self.act_history.insert(0, act)
+        self.obs_history.insert(0,  torch.tensor(state, requires_grad=False).to(self.device))
         self.act_history = self.act_history[0:self.history_len]
         self.obs_history = self.obs_history[0:self.history_len]
 
@@ -184,17 +189,15 @@ class A2CAgent():
         return torch.stack(self.obs_history)
 
     def select_action(self, state):
-        sample = np.random.uniform(0, 1)
-        eps_threshold = self.eps_final + (self.eps_init - self.eps_final) * \
-            np.exp(-1. * self.steps_done / self.eps_decay)
         self.steps_done += 1
-        dist = self.actor(state.flatten())
+        dist = self.actor(state.clone().flatten())
         
         return dist
 
-    def optimize_model(self):
+    def optimize_model_batch(self):
+        torch.autograd.set_detect_anomaly(True)
         if len(self.buffer) < self.batch_size:
-            return
+            return None, None
         transitions = self.buffer.sample(self.batch_size)
         # Transpose the batch
         batch = A2CTransition(*zip(*transitions))
@@ -205,31 +208,26 @@ class A2CAgent():
                                             batch.next_state)), device=self.device, dtype=torch.bool)
         non_final_next_states = torch.stack([s for s in batch.next_state
                                                     if s is not None]).float()
-        non_final_index = torch.stack([i for i in range(batch.next_state)
-                                              if batch.next_state[i] is not None])
+        non_final_index = non_final_mask.nonzero()
+
         state_batch = torch.cat(batch.state)
         action_batch = torch.cat(batch.action)
         reward_batch = torch.cat(batch.reward)
         log_prob_batch = torch.cat(batch.log_prob)
         dist_batch = torch.cat(batch.dist)
 
-        import pdb; pdb.set_trace()
-
         # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
         # columns of actions taken. These are the actions which would've been taken
         # for each batch state according to policy_net
         state_action_values = self.q_net(state_batch).gather(1, action_batch.reshape(self.batch_size, 1))
-        # for advantage calculation
-        with torch.no_grad():
-            state_action_values_no_grad = self.q_net(state_batch).gather(1, action_batch.reshape(self.batch_size, 1))
 
         # Compute V(s_{t+1}) for all next states.
         next_state_values = torch.zeros(self.batch_size, device=self.device)
 
         #Not max anymore, Expectation over the policy instead
-
-        next_state_values[non_final_mask] = self.t_net(non_final_next_states)
-
+        with torch.no_grad():
+            next_state_values[non_final_mask] = torch.bmm(self.t_net(non_final_next_states).reshape(self.batch_size, 1, self.n_actions), 
+                                                          dist_batch[non_final_index].reshape(self.batch_size, self.n_actions, 1)).squeeze()
 
         # Compute the expected Q values
         expected_state_action_values = (next_state_values * self.gamma) + reward_batch
@@ -237,30 +235,76 @@ class A2CAgent():
         criterion = nn.SmoothL1Loss()
         value_loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
 
+        with torch.no_grad():
+            state_action_values_no_grad = self.t_net(state_batch).gather(1, action_batch.reshape(self.batch_size, 1)).squeeze()
+            curr_state_action_values = self.t_net(state_batch)
+        curr_state_values = torch.bmm(curr_state_action_values.reshape(self.batch_size, 1, self.n_actions), 
+                                      dist_batch.reshape(self.batch_size, self.n_actions, 1)).squeeze()
+        advantage = state_action_values_no_grad - curr_state_values
+        policy_loss = torch.mul(-log_prob_batch, advantage).mean()
+
+        import pdb;pdb.set_trace()
+
         # Optimize the model
-        self.q_net_optimizer.zero_grad()
-        value_loss.backward()
+        self.optimizer.zero_grad()
+        self.actor_optimizer.zero_grad()
+ 
+        value_loss.backward(retain_graph=True)
+        policy_loss.backward(retain_graph=True)
         # print("value_loss: ", value_loss.item())
         for param in self.q_net.parameters():
             param.grad.data.clamp_(-1, 1)
-        self.q_net_optimizer.step()
 
         # Compute advantage = Q(s_t, a) - V(s_t)
-        curr_state_values = torch.zeros(self.batch_size, device=self.device)
-        with torch.no_grad():
-            curr_state_action_values = self.t_net(state_batch)
-            curr_state_values = torch.bmm(curr_state_action_values.reshape(self.batch_size, 1, self.n_actions), 
-                                          action_batch.reshape(self.batch_size, self.n_actions, 1))
-        advantage = state_action_values_no_grad - curr_state_values
-        policy_loss = (-action_batch * advantage).mean()
-
+        # for advantage calculation
+        
+        import pdb;pdb.set_trace()
         # Optimize the policy
-        self.actor_optimizer.zero_grad()
-        policy_loss.backward()
         for param in self.actor.parameters():
             param.grad.data.clamp_(-1, 1)
+
+        self.optimizer.step()
         self.actor_optimizer.step()
+
+        import pdb;pdb.set_trace()
         
+        return policy_loss.item(), value_loss.item()
+
+    def optimize_model(self):
+
+        state, log_prob, next_state, reward, done, act = self.transition
+        
+         # Q_t   = r + gamma * V(s_{t+1})  if state != Terminal
+        #       = r                       otherwise
+        mask = 1 - done
+        next_state = torch.unsqueeze(next_state, dim=0)
+        pred_value = self.q_net(state)
+        targ_value = self.q_net(next_state)
+        dist = self.select_action(state)
+        next_dist = self.select_action(next_state)
+
+        expected_curr_value = torch.matmul(pred_value, dist)
+        expected_next_value = torch.matmul(self.t_net(next_state), next_dist)
+
+        targ_value =  reward + self.gamma * targ_value * mask
+        value_loss = F.smooth_l1_loss(pred_value, targ_value.detach())
+        
+        # update value
+        self.optimizer.zero_grad()
+        value_loss.backward()
+        self.optimizer.step()
+
+        # advantage = Q(s_t, a) - V(s_t)
+        u_dist = ((1/self.n_actions)*torch.ones(self.n_actions)).to(self.device)
+        advantage = (targ_value.data[0][act.item()] - torch.matmul(pred_value, u_dist)).detach()  # not backpropagated
+        policy_loss = -advantage * log_prob
+        # policy_loss += self.entropy_weight * -log_prob  # entropy maximization
+
+        # update policy
+        self.actor_optimizer.zero_grad()
+        policy_loss.backward()
+        self.actor_optimizer.step()
+
         return policy_loss.item(), value_loss.item()
 
 class NashActorCriticAgent():

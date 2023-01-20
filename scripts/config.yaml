@@ -8,6 +8,7 @@ agent_type: "dqn"
 use_history: False
 target_steps: 10
 reward_window: 10
+is_pc: False
 dqn_agent:
   gamma: 0.999
   eps_final: 0
@@ -20,6 +21,7 @@ dqn_agent:
   model_type: "mlp"
   batch_size: 128
   history_len: 2
+  temperature: 1
 a2c_agent:
   gamma: 0.999
   eps_final: 0
@@ -32,3 +34,4 @@ a2c_agent:
   model_type: "mlp"
   batch_size: 128
   history_len: 2
+  temperature: 1

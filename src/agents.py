@@ -24,7 +24,9 @@ class BaseAgent():
                  model_type="mlp",
                  opt_type="rmsprop",
                  batch_size=128,
-                 history_len=0):
+                 history_len=0,
+                 temperature=1,
+                 is_pc=False):
         self.steps_done = 0
         self.device = device
         self.gamma = gamma
@@ -38,21 +40,25 @@ class BaseAgent():
         self.obs_shape = obs_shape
         self.batch_size = batch_size
         self.history_len = history_len
+        self.temperature = temperature
         self.buffer_size =buffer_size
         self.model_type = model_type.lower()
         self.opt_type = opt_type.lower()
         self.obs_size = history_len * reduce(lambda a, b: a * b, self.obs_shape)
+        self.val_obs_size = self.obs_size
+        if is_pc:
+            self.val_obs_size = self.obs_size + self.n_actions
 
         self.obs_history = []
         self.act_history = []
         
         if self.model_type == "mlp":
-            self.q_net = MLPModel(in_size=self.obs_size,
+            self.q_net = MLPModel(in_size=self.val_obs_size,
                                   out_size=self.n_actions,
                                   hidden_size=self.hidden_size,
                                   num_layers=self.num_layers,
                                   batch_norm=self.batch_norm)
-            self.t_net = MLPModel(in_size=self.obs_size,
+            self.t_net = MLPModel(in_size=self.val_obs_size,
                                   out_size=self.n_actions,
                                   hidden_size=self.hidden_size,
                                   num_layers=self.num_layers,
@@ -169,7 +175,7 @@ class A2CAgent():
                            n_actions=n_actions,
                            obs_shape=obs_shape)
         self.buffer = ReplayMemory(self.buffer_size, "a2c")
-        self.actor = Actor(self.obs_size, self.n_actions, self.hidden_size)
+        self.actor = Actor(self.obs_size, self.n_actions, self.hidden_size, self.temperature)
         self.actor.to(self.device)
         self.transition: list = list()
 
@@ -193,82 +199,6 @@ class A2CAgent():
         dist = self.actor(state.clone().flatten())
         
         return dist
-
-    def optimize_model_batch(self):
-        torch.autograd.set_detect_anomaly(True)
-        if len(self.buffer) < self.batch_size:
-            return None, None
-        transitions = self.buffer.sample(self.batch_size)
-        # Transpose the batch
-        batch = A2CTransition(*zip(*transitions))
-
-        # Compute a mask of non-final states and concatenate the batch elements
-        # (a final state would've been the one after which simulation ended)
-        non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
-                                            batch.next_state)), device=self.device, dtype=torch.bool)
-        non_final_next_states = torch.stack([s for s in batch.next_state
-                                                    if s is not None]).float()
-        non_final_index = non_final_mask.nonzero()
-
-        state_batch = torch.cat(batch.state)
-        action_batch = torch.cat(batch.action)
-        reward_batch = torch.cat(batch.reward)
-        log_prob_batch = torch.cat(batch.log_prob)
-        dist_batch = torch.cat(batch.dist)
-
-        # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
-        # columns of actions taken. These are the actions which would've been taken
-        # for each batch state according to policy_net
-        state_action_values = self.q_net(state_batch).gather(1, action_batch.reshape(self.batch_size, 1))
-
-        # Compute V(s_{t+1}) for all next states.
-        next_state_values = torch.zeros(self.batch_size, device=self.device)
-
-        #Not max anymore, Expectation over the policy instead
-        with torch.no_grad():
-            next_state_values[non_final_mask] = torch.bmm(self.t_net(non_final_next_states).reshape(self.batch_size, 1, self.n_actions), 
-                                                          dist_batch[non_final_index].reshape(self.batch_size, self.n_actions, 1)).squeeze()
-
-        # Compute the expected Q values
-        expected_state_action_values = (next_state_values * self.gamma) + reward_batch
-
-        criterion = nn.SmoothL1Loss()
-        value_loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
-
-        with torch.no_grad():
-            state_action_values_no_grad = self.t_net(state_batch).gather(1, action_batch.reshape(self.batch_size, 1)).squeeze()
-            curr_state_action_values = self.t_net(state_batch)
-        curr_state_values = torch.bmm(curr_state_action_values.reshape(self.batch_size, 1, self.n_actions), 
-                                      dist_batch.reshape(self.batch_size, self.n_actions, 1)).squeeze()
-        advantage = state_action_values_no_grad - curr_state_values
-        policy_loss = torch.mul(-log_prob_batch, advantage).mean()
-
-        import pdb;pdb.set_trace()
-
-        # Optimize the model
-        self.optimizer.zero_grad()
-        self.actor_optimizer.zero_grad()
- 
-        value_loss.backward(retain_graph=True)
-        policy_loss.backward(retain_graph=True)
-        # print("value_loss: ", value_loss.item())
-        for param in self.q_net.parameters():
-            param.grad.data.clamp_(-1, 1)
-
-        # Compute advantage = Q(s_t, a) - V(s_t)
-        # for advantage calculation
-        
-        import pdb;pdb.set_trace()
-        # Optimize the policy
-        for param in self.actor.parameters():
-            param.grad.data.clamp_(-1, 1)
-
-        self.optimizer.step()
-        self.actor_optimizer.step()
-
-        import pdb;pdb.set_trace()
-        
-        return policy_loss.item(), value_loss.item()
 
     def optimize_model(self):
 
@@ -306,6 +236,121 @@ class A2CAgent():
         self.actor_optimizer.step()
 
         return policy_loss.item(), value_loss.item()
+
+## A2C with policy-conditioned value function
+class A2CPCAgent():
+    def __init__(self,
+                 config,
+                 device,
+                 n_actions,
+                 obs_shape):
+        BaseAgent.__init__(self,
+                           **config, 
+                           device=device,
+                           n_actions=n_actions,
+                           obs_shape=obs_shape,
+                           is_pc=True)
+        self.buffer = ReplayMemory(self.buffer_size, "a2c")
+        self.actor = Actor(self.obs_size, self.n_actions, self.hidden_size, self.temperature)
+        self.actor.to(self.device)
+        self.o_actor = Actor(self.obs_size, self.n_actions, self.hidden_size, self.temperature)
+        self.o_actor.to(self.device)
+        self.transition: list = list()
+
+        if self.opt_type.lower() == "rmsprop":
+            self.actor_optimizer = optim.RMSprop(self.actor.parameters())
+
+    def update_history(self, act, state):
+        self.act_history.insert(0, act)
+        self.obs_history.insert(0,  torch.tensor(state, requires_grad=False).to(self.device))
+        self.act_history = self.act_history[0:self.history_len]
+        self.obs_history = self.obs_history[0:self.history_len]
+
+    def aggregate_history(self):
+        curr_hist_delta = self.history_len - len(self.obs_history)
+        for i in range(curr_hist_delta):
+            self.obs_history.append(torch.zeros(self.obs_shape).to(self.device))
+        return torch.stack(self.obs_history)
+
+    def select_action(self, state):
+        self.steps_done += 1
+        dist = self.actor(state.clone().flatten())
+        
+        return dist
+
+    def optimize_model(self):
+        torch.autograd.set_detect_anomaly(True)
+        if len(self.buffer) < self.batch_size:
+            return None, None
+        transitions = self.buffer.sample(self.batch_size)
+        # Transpose the batch
+        batch = A2CTransition(*zip(*transitions))
+
+        # Compute a mask of non-final states and concatenate the batch elements
+        # (a final state would've been the one after which simulation ended)
+        non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
+                                            batch.next_state)), device=self.device, dtype=torch.bool)
+        non_final_next_states = torch.stack([s for s in batch.next_state
+                                                    if s is not None]).float()
+        non_final_index = non_final_mask.nonzero()
+
+        num_nfns = non_final_next_states.shape[0]
+
+        state_batch = torch.cat(batch.state)
+        action_batch = torch.cat(batch.action)
+        reward_batch = torch.cat(batch.reward)
+        dist_batch = torch.cat(batch.dist)
+        state_dist_batch = torch.cat([state_batch.reshape(self.batch_size, self.obs_size), dist_batch], dim=1)
+
+        # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
+        # columns of actions taken. These are the actions which would've been taken
+        # for each batch state according to policy_net
+        state_action_values = self.q_net(state_dist_batch).gather(1, action_batch.reshape(self.batch_size, 1))
+
+        # Compute V(s_{t+1}) for all next states.
+        next_state_values = torch.zeros(self.batch_size, device=self.device)
+
+        #Not max anymore, Expectation over the oponent's current policy instead
+        with torch.no_grad():
+            next_state_a_policy = self.actor(non_final_next_states.reshape(num_nfns, self.n_actions)).detach()
+            next_state_o_policy = self.o_actor(non_final_next_states.reshape(num_nfns, self.n_actions)).detach()
+            non_final_next_states_dists = torch.cat([non_final_next_states.reshape(num_nfns, self.obs_size), next_state_o_policy], dim=1)
+
+            next_state_values[non_final_mask] = torch.bmm(self.q_net(non_final_next_states_dists).reshape(num_nfns, 1, self.n_actions), 
+                                                          next_state_a_policy.reshape(num_nfns, self.n_actions, 1)).squeeze()
+
+        # Compute the expected Q values
+        expected_state_action_values = (next_state_values * self.gamma) + reward_batch
+
+        criterion = nn.SmoothL1Loss()
+        value_loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1).detach())
+
+        self.optimizer.zero_grad()
+        value_loss.backward()
+        for param in self.q_net.parameters():
+            param.grad.data.clamp_(-1, 1)
+
+        self.optimizer.step()
+
+        state, log_p, next_state, reward, done, act, dist = self.transition
+        a_dist = self.select_action(state)
+        log_prob = torch.log(a_dist[act])
+        mask = 1 - done
+        pred_value = self.q_net(torch.cat([state.reshape(1, self.obs_size), dist], dim=1))
+        targ_value = self.q_net(torch.cat([next_state.reshape(1, self.obs_size), self.o_actor(next_state.reshape(1, self.obs_size))], dim=1))
+        targ_value =  reward + self.gamma * targ_value * mask
+        
+        # advantage = Q(s_t, a) - V(s_t)
+        advantage = (targ_value.data[0][act.item()] - torch.mean(pred_value)).detach()  # not backpropagated
+        policy_loss = -advantage * log_prob
+
+        # update policy
+        self.actor_optimizer.zero_grad()
+        policy_loss.backward()
+        self.actor_optimizer.step()
+        
+        return policy_loss.item(), value_loss.item()
+
 
 class NashActorCriticAgent():
 

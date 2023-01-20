@@ -11,7 +11,7 @@ from torch.distributions import Normal
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 A2CTransition = namedtuple('Transition',
-                           ('state', 'action','log_prob', 'dist', 'next_state', 'reward'))
+                           ('state', 'action', 'dist', 'next_state', 'reward'))
 
 def initialize_uniformly(layer: nn.Linear, init_w: float = 3e-3):
     """Initialize the weights and bias in [-init_w, init_w]."""
@@ -92,21 +92,21 @@ class MLPModel(nn.Module):
                 x = F.relu(self.bns[i](self.hidden[i](x)))
             else:
                 x = F.relu(self.hidden[i](x))
-        return self.softmax(self.out_layer(x))
+        return self.out_layer(x)
 
 class Actor(nn.Module):
-    def __init__(self, in_size, out_size, hidden_size):
+    def __init__(self, in_size, out_size, hidden_size, temperature=1):
         super(Actor, self).__init__()
 
         self.in_size = in_size
         self.out_size = out_size
         self.hidden_size = hidden_size
+        self.temperature = temperature
         
         self.hidden1 = nn.Linear(in_size, hidden_size)
         self.out_layer = nn.Linear(hidden_size, out_size)     
         
 
     def forward(self, state):
-        x = F.relu(self.hidden1(state), inplace=False) 
-        
-        return F.softmax(self.out_layer(x.clone()).clone(), dim=0)
+        x = F.relu(self.hidden1(state), inplace=False)
+        return F.softmax(self.out_layer(x)/self.temperature)

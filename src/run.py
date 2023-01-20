@@ -11,7 +11,7 @@ from omegaconf import DictConfig, OmegaConf
 from typing import Any, Dict, Optional
 
 from .coin_game import CoinGame
-from .agents import DQNAgent, A2CAgent
+from .agents import DQNAgent, A2CAgent, A2CPCAgent
 
 N_ACTIONS = 4
 
@@ -72,6 +72,7 @@ def run_dqn(env, obs, agent_1, agent_2, target_steps, reward_window, device, use
             agent_1.buffer.push(state, action_1, next_state, reward_1)
             agent_2.buffer.push(state, action_2, next_state, reward_2)
 
+
             # Move to the next state
             state = next_state
 
@@ -98,7 +99,7 @@ def run_dqn(env, obs, agent_1, agent_2, target_steps, reward_window, device, use
             agent_1.t_net.load_state_dict(agent_1.q_net.state_dict())
             agent_2.t_net.load_state_dict(agent_2.q_net.state_dict())
 
-def run_a2c(env, obs, agent_1, agent_2, target_steps, reward_window, device, use_history):
+def run_a2c(env, obs, agent_1, agent_2, target_steps, reward_window, device, use_history, is_pc):
     num_episodes = 100000
     avg_reward_1 = []
     avg_reward_2 = []
@@ -162,10 +163,16 @@ def run_a2c(env, obs, agent_1, agent_2, target_steps, reward_window, device, use
                 next_state = None
 
             # Store the transition in memory
-            # agent_1.buffer.push(state, action_1, log_prob_1, torch.unsqueeze(dist_1, 0), next_state, reward_1)
-            # agent_2.buffer.push(state, action_2, log_prob_2, torch.unsqueeze(dist_2, 0), next_state, reward_2)
-            agent_1.transition = [state, log_prob_1, next_state, reward_1, done, action_1]
-            agent_2.transition = [state, log_prob_2, next_state, reward_2, done, action_2]
+            if is_pc:
+                agent_1.buffer.push(state, action_1, torch.unsqueeze(dist_1, 0).detach(), next_state, reward_1)
+                agent_2.buffer.push(state, action_2, torch.unsqueeze(dist_2, 0).detach(), next_state, reward_2)
+
+                # Store opponent's current policy
+                agent_1.o_actor.load_state_dict(agent_2.actor.state_dict())
+                agent_2.o_actor.load_state_dict(agent_1.actor.state_dict())
+            
+            agent_1.transition = [state, log_prob_1, next_state, reward_1, done, action_1, torch.unsqueeze(dist_2, 0).detach()]
+            agent_2.transition = [state, log_prob_2, next_state, reward_2, done, action_2, torch.unsqueeze(dist_1, 0).detach()]
 
             # Move to the next state
             state = next_state
@@ -212,6 +219,7 @@ def main(args: DictConfig):
     target_steps = config["target_steps"]
     reward_window = config["reward_window"]
     use_history = config["use_history"]
+    is_pc = config["is_pc"]
 
     if config["agent_type"] == "dqn":
         agent_1 = DQNAgent(config["dqn_agent"], 
@@ -234,15 +242,26 @@ def main(args: DictConfig):
                 use_history=use_history)
 
     elif config["agent_type"] == "a2c":
-        agent_1 = A2CAgent(config["a2c_agent"], 
-                           device=device,
-                           n_actions=N_ACTIONS,
-                           obs_shape=obs.shape)
+        if is_pc:
+            agent_1 = A2CPCAgent(config["a2c_agent"], 
+                            device=device,
+                            n_actions=N_ACTIONS,
+                            obs_shape=obs.shape)
 
-        agent_2 = A2CAgent(config["a2c_agent"], 
-                           device=device,
-                           n_actions=N_ACTIONS,
-                           obs_shape=obs.shape)
+            agent_2 = A2CPCAgent(config["a2c_agent"], 
+                            device=device,
+                            n_actions=N_ACTIONS,
+                            obs_shape=obs.shape)
+        else:
+            agent_1 = A2CAgent(config["a2c_agent"], 
+                            device=device,
+                            n_actions=N_ACTIONS,
+                            obs_shape=obs.shape)
+
+            agent_2 = A2CAgent(config["a2c_agent"], 
+                            device=device,
+                            n_actions=N_ACTIONS,
+                            obs_shape=obs.shape)
 
         run_a2c(env=env, 
                 obs=obs, 
@@ -251,7 +270,8 @@ def main(args: DictConfig):
                 target_steps=target_steps, 
                 reward_window=reward_window, 
                 device=device, 
-                use_history=use_history)
+                use_history=use_history,
+                is_pc=is_pc)
 
 if __name__ == "__main__":
     main()

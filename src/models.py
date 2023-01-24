@@ -12,6 +12,8 @@ Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 A2CTransition = namedtuple('Transition',
                            ('state', 'action', 'dist', 'next_state', 'reward'))
+NashACTransition = namedtuple('Transition',
+                              ('state', 'a', 'b', 'dist', 'next_state', 'reward'))
 
 def initialize_uniformly(layer: nn.Linear, init_w: float = 3e-3):
     """Initialize the weights and bias in [-init_w, init_w]."""
@@ -28,6 +30,8 @@ class ReplayMemory(object):
         """Save a transition"""
         if self.transition_type == "a2c":
             self.memory.append(A2CTransition(*args))
+        elif self.transition_type == "nash_ac":
+            self.memory.append(NashACTransition(*args))
         else:
             elf.memory.append(Transition(*args))
 

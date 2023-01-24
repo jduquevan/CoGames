@@ -1,5 +1,5 @@
 #!/bin/bash
-SEEDS=(13 21 23 29)
+SEEDS=(13 4 3)
 HIST_LENS=(2)
 TEMPS=(0.25 0.5 1 2 4)
 

@@ -452,8 +452,8 @@ class NashActorCriticAgent():
 
         #Not max anymore, Expectation over the current policies instead. Approximated via sampling
         with torch.no_grad():
-            next_state_a_policy = self.actor(non_final_next_states.reshape(num_nfns, self.n_actions)).detach()
-            next_state_b_policy = self.o_actor(non_final_next_states.reshape(num_nfns, self.n_actions)).detach()
+            next_state_a_policy = self.actor(non_final_next_states.reshape(num_nfns, self.obs_size)).detach()
+            next_state_b_policy = self.o_actor(non_final_next_states.reshape(num_nfns, self.obs_size)).detach()
 
             # Independent sampling for a', b'
             cum_next_state_a_policy = torch.cumsum(next_state_a_policy, dim=1)
@@ -512,7 +512,8 @@ class ReinforcedNashActorCriticAgent():
                  sgd_config,
                  device,
                  n_actions,
-                 obs_shape):
+                 obs_shape,
+                 policy_hist_len):
         BaseAgent.__init__(self,
                            **config, 
                            device=device,
@@ -526,6 +527,7 @@ class ReinforcedNashActorCriticAgent():
         self.o_actor = Actor(self.obs_size, self.n_actions, self.hidden_size, self.temperature)
         self.o_actor.to(self.device)
         self.transition: list = list()
+        self.policy_hist_len=policy_hist_len
 
         # Surrogate Q-value function
         if self.model_type == "mlp":

@@ -416,7 +416,155 @@ class NashActorCriticAgent():
         return dist
 
     def optimize_model(self):
-        # TODO: DQN optimization to estimate Q^A(s, a, b), Q^B(s, a, b)
+        if len(self.buffer) < self.batch_size:
+            return None, None
+        transitions = self.buffer.sample(self.batch_size)
+        # Transpose the batch
+        batch = NashACTransition(*zip(*transitions))
+
+        # Compute a mask of non-final states and concatenate the batch elements
+        # (a final state would've been the one after which simulation ended)
+        non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
+                                            batch.next_state)), device=self.device, dtype=torch.bool)
+        non_final_next_states = torch.stack([s for s in batch.next_state
+                                                    if s is not None]).float()
+        non_final_index = non_final_mask.nonzero()
+
+        num_nfns = non_final_next_states.shape[0]
+
+        state_batch = torch.cat(batch.state)
+        a_batch = torch.cat(batch.a)
+        b_batch = torch.cat(batch.b)
+        reward_batch = torch.cat(batch.reward)
+
+        one_hot_a_batch = torch.zeros((self.batch_size, self.n_actions)).to(self.device)
+        one_hot_b_batch = torch.zeros((self.batch_size, self.n_actions)).to(self.device)
+        one_hot_a_batch = one_hot_a_batch.scatter(1, a_batch.reshape(self.batch_size, 1), 1)
+        one_hot_b_batch = one_hot_b_batch.scatter(1, b_batch.reshape(self.batch_size, 1), 1)
+
+        state_a_b_batch = torch.cat([state_batch.reshape(self.batch_size, self.obs_size), one_hot_a_batch, one_hot_b_batch], dim=1)
+        
+        # Compute Q(s_t, a, b)
+        state_action_values = self.q_net(state_a_b_batch)
+
+        # Compute V(s_{t+1}) for all next states.
+        next_state_values = torch.zeros(self.batch_size, device=self.device)
+
+        #Not max anymore, Expectation over the current policies instead. Approximated via sampling
+        with torch.no_grad():
+            next_state_a_policy = self.actor(non_final_next_states.reshape(num_nfns, self.n_actions)).detach()
+            next_state_b_policy = self.o_actor(non_final_next_states.reshape(num_nfns, self.n_actions)).detach()
+
+            # Independent sampling for a', b'
+            cum_next_state_a_policy = torch.cumsum(next_state_a_policy, dim=1)
+            cum_next_state_b_policy = torch.cumsum(next_state_b_policy, dim=1)
+            u_dist_a = torch.rand((self.batch_size, self.n_actions)).to(self.device)
+            u_dist_b = torch.rand((self.batch_size, self.n_actions)).to(self.device)
+            a_prime = torch.argmax((u_dist_a < cum_next_state_a_policy).long(), dim=1)
+            b_prime = torch.argmax((u_dist_b < cum_next_state_b_policy).long(), dim=1)
+
+            # One-hot encoding of a', b'
+            one_hot_a_prime_batch = torch.zeros((self.batch_size, self.n_actions)).to(self.device)
+            one_hot_b_prime_batch = torch.zeros((self.batch_size, self.n_actions)).to(self.device)
+            one_hot_a_prime_batch = one_hot_a_prime_batch.scatter(1, a_prime.reshape(self.batch_size, 1), 1)
+            one_hot_b_prime_batch = one_hot_b_prime_batch.scatter(1, b_prime.reshape(self.batch_size, 1), 1)
+            
+
+            non_final_next_states_and_acts = torch.cat([non_final_next_states.reshape(num_nfns, self.obs_size), one_hot_a_prime_batch, 
+                                                       one_hot_b_prime_batch], dim=1)
+
+            next_state_values[non_final_mask] = self.t_net(non_final_next_states_and_acts).squeeze()
+
+        # Compute the expected Q values
+        expected_state_action_values = (next_state_values * self.gamma) + reward_batch
+
+        criterion = nn.SmoothL1Loss()
+        value_loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1).detach())
+
+        self.optimizer.zero_grad()
+        value_loss.backward()
+        for param in self.q_net.parameters():
+            param.grad.data.clamp_(-1, 1)
+        self.optimizer.step()
+
+        # Set surrogate weights to Q-value function's weights
+        self.surr_q_net.load_state_dict(self.t_net.state_dict())
+
+        state, dist_b = self.transition
+        dist_a = self.select_action(state)
+        state_a_b = torch.cat([state.reshape(1, self.obs_size), dist_a.reshape(1, self.n_actions), 
+                              dist_b.reshape(1, self.n_actions)], dim=1)
+
+        game_value = self.surr_q_net(state_a_b)
+
+        # Use surrogate Q^A(s, a, b), to optimize \pi^A(s)
+        self.actor_optimizer.zero_grad()
+        game_value.backward()
+        self.actor_optimizer.step()
+        
+        return game_value.item(), value_loss.item()
+
+
+class ReinforcedNashActorCriticAgent():
+
+    def __init__(self,
+                 config,
+                 sgd_config,
+                 device,
+                 n_actions,
+                 obs_shape):
+        BaseAgent.__init__(self,
+                           **config, 
+                           device=device,
+                           n_actions=n_actions,
+                           obs_shape=obs_shape,
+                           is_nash=True)
+        self.buffer = ReplayMemory(self.buffer_size, "nash_ac")
+        self.policy_buffer = ReplayMemory(self.buffer_size, "rf_nash_ac")
+        self.actor = Actor(self.obs_size, self.n_actions, self.hidden_size, self.temperature)
+        self.actor.to(self.device)
+        self.o_actor = Actor(self.obs_size, self.n_actions, self.hidden_size, self.temperature)
+        self.o_actor.to(self.device)
+        self.transition: list = list()
+
+        # Surrogate Q-value function
+        if self.model_type == "mlp":
+            self.surr_q_net = MLPModel(in_size=self.val_obs_size,
+                                       out_size=1,
+                                       hidden_size=self.hidden_size,
+                                       num_layers=self.num_layers,
+                                       batch_norm=self.batch_norm)
+            self.surr_q_net.to(self.device)
+
+        # Joint surrogate Q-value function and policy optimizer
+        self.actor_optimizer = optim.SGD(list(self.surr_q_net.parameters()) + list(self.actor.parameters()), 
+                                         lr=sgd_config["lr"],
+                                         momentum=sgd_config["momentum"],
+                                         maximize=True)
+        
+
+    def update_history(self, act, state):
+        self.act_history.insert(0, act)
+        self.obs_history.insert(0,  torch.tensor(state, requires_grad=False).to(self.device))
+        self.act_history = self.act_history[0:self.history_len]
+        self.obs_history = self.obs_history[0:self.history_len]
+
+    def aggregate_history(self):
+        curr_hist_delta = self.history_len - len(self.obs_history)
+        for i in range(curr_hist_delta):
+            self.obs_history.append(torch.zeros(self.obs_shape).to(self.device))
+        return torch.stack(self.obs_history)
+
+    def select_action(self, state):
+        self.steps_done += 1
+        dist = self.actor(state.clone().flatten())
+        
+        return dist
+
+    def optimize_model(self):
+
+        # TODO: DQN optimization to estimate r^A(s, a, b), r^B(s, a, b)
+        # TODO: Reinforce estimation to optimize the policy (Could use soft actions as well)
         if len(self.buffer) < self.batch_size:
             return None, None
         transitions = self.buffer.sample(self.batch_size)

@@ -9,32 +9,24 @@ use_history: False
 target_steps: 10
 reward_window: 10
 is_pc: False
+base_agent:
+  gamma: 0.999
+  buffer_size: 10000
+  hidden_size: 40
+  num_layers: 0
+  batch_norm: False
+  model_type: "mlp"
+  use_actions: False
+  batch_size: 128
+  history_len: 2
+  temperature: 1
 dqn_agent:
   gamma: 0.999
   eps_final: 0
   eps_init: 1
   eps_decay: 500
-  buffer_size: 10000
-  hidden_size: 40
-  num_layers: 0
-  batch_norm: False
-  model_type: "mlp"
-  batch_size: 128
-  history_len: 2
-  temperature: 1
 a2c_agent:
-  gamma: 0.999
-  eps_final: 0
-  eps_init: 1
-  eps_decay: 500
-  buffer_size: 10000
-  hidden_size: 40
-  num_layers: 0
-  batch_norm: False
-  model_type: "mlp"
-  batch_size: 128
-  history_len: 2
-  temperature: 1
+  is_pc: False
 nash_ac_agent:
   gamma: 0.999
   eps_final: 0
@@ -45,9 +37,12 @@ nash_ac_agent:
   num_layers: 0
   batch_norm: False
   model_type: "mlp"
+  use_actions: False
   batch_size: 128
   history_len: 2
   temperature: 1
+rf_nash_ac_agent:
+  policy_hist_len: 8
 sgd:
   lr: 0.1
   momentum: 0.9

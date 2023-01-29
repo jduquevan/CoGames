@@ -15,7 +15,7 @@ A2CTransition = namedtuple('Transition',
 NashACTransition = namedtuple('Transition',
                               ('state', 'a', 'b', 'dist', 'next_state', 'reward'))
 RfNashACTransition = namedtuple('Transition',
-                                ('state', 'a', 'b', 'next_state', 'reward'))
+                                ('state', 'a', 'b'))
 
 def initialize_uniformly(layer: nn.Linear, init_w: float = 3e-3):
     """Initialize the weights and bias in [-init_w, init_w]."""
@@ -37,7 +37,7 @@ class ReplayMemory(object):
         elif self.transition_type == "rf_nash_ac":
             self.memory.append(RfNashACTransition(*args))
         else:
-            elf.memory.append(Transition(*args))
+            self.memory.append(Transition(*args))
 
     def sample(self, batch_size):
         return random.sample(self.memory, batch_size)
@@ -113,8 +113,25 @@ class Actor(nn.Module):
         
         self.hidden1 = nn.Linear(in_size, hidden_size)
         self.out_layer = nn.Linear(hidden_size, out_size)     
-        
 
     def forward(self, state):
         x = F.relu(self.hidden1(state), inplace=False)
         return F.softmax(self.out_layer(x)/self.temperature)
+
+class LSTMModel(nn.Module):
+    def __init__(self, in_size, out_size, hidden_size, lstm_out, num_layers=1):
+        super(LSTMModel, self).__init__()
+
+        self.in_size = in_size
+        self.out_size = out_size
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.lstm_out = lstm_out
+
+        self.lstm = nn.LSTM(in_size, lstm_out, num_layers+1, batch_first = True)
+        self.out_layer = nn.Linear(self.lstm_out, self.out_size)
+
+    def forward(self, x):
+        # h_0 defaults to 0
+        x, hidden = self.lstm(x)
+        return self.out_layer(x[:,-1,:])

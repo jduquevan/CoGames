@@ -8,14 +8,15 @@
 #SBATCH --job-name=co_games_dqn
 
 # Remove one # to uncommment
-#SBATCH --output=slurm_output/%x-%j.txt
+#SBATCH --output=/network/scratch/j/juan.duque/slurm_output/slurm-%j.out
+#SBATCH --error=/network/scratch/j/juan.duque/slurm_output/job-%j.out
 
 # Define, how many nodes you need. Here, we ask for 1 node.
 #SBATCH -N 1 #nodes
 #SBATCH -n 1 #tasks
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=20G
-#SBATCH --time=0-00:59:00   
+#SBATCH --time=0-00:29:00   
 #SBATCH --gres=gpu:1 
 
 # Turn on mail notification. There are many possible self-explaining values:
@@ -26,9 +27,6 @@
 #SBATCH --mail-user=juan.duque@mila.quebec
 
 
-# Define and create a unique scratch directory for this job
-#SBATCH --output=/home/mila/j/juan.duque/projects/CoGames/slurm_output/%j.out
-
 # Submit jobs.
 version=4
 export WANDB_ENTITY="jduque"
@@ -37,7 +35,7 @@ module purge
 eval "$(conda shell.bash hook)"
 conda activate cogames
 
-python -m src.run seed=${1} dqn_agent.eps_decay=${2} dqn_agent.use_history=True \
-    dqn_agent.model_type="conv" dqn_agent.history_len=${3}
+python -m src.run seed=${1} agent_type="dqn" use_history=True dqn_agent.eps_decay=${2} \
+    base_agent.model_type="lstm" base_agent.history_len=${3} base_agent.use_actions=True
 
-#python -m src.run seed=1 agent_type="a2c" use_history=True a2c_agent.model_type="conv" a2c_agent.history_len=2
+#python -m src.run seed=1 agent_type="dqn" use_history=True base_agent.model_type="lstm" base_agent.history_len=2 base_agent.use_actions=True

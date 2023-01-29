@@ -36,12 +36,14 @@ def main(args: DictConfig):
     is_pc = config["is_pc"]
 
     if config["agent_type"] == "dqn":
-        agent_1 = DQNAgent(config["dqn_agent"], 
+        agent_1 = DQNAgent(config["base_agent"],
+                           config["dqn_agent"], 
                            device=device,
                            n_actions=N_ACTIONS,
                            obs_shape=obs.shape)
 
-        agent_2 = DQNAgent(config["dqn_agent"], 
+        agent_2 = DQNAgent(config["base_agent"],
+                           config["dqn_agent"], 
                            device=device,
                            n_actions=N_ACTIONS,
                            obs_shape=obs.shape)
@@ -56,26 +58,31 @@ def main(args: DictConfig):
                 use_history=use_history)
 
     elif config["agent_type"] == "a2c":
+        # TODO: Debug A2C agents and initialization 
         if is_pc:
-            agent_1 = A2CPCAgent(config["a2c_agent"], 
-                            device=device,
-                            n_actions=N_ACTIONS,
-                            obs_shape=obs.shape)
+            agent_1 = A2CPCAgent(config["base_agent"],
+                                 config["a2c_agent"], 
+                                 device=device,
+                                 n_actions=N_ACTIONS,
+                                 obs_shape=obs.shape)
 
-            agent_2 = A2CPCAgent(config["a2c_agent"], 
-                            device=device,
-                            n_actions=N_ACTIONS,
-                            obs_shape=obs.shape)
+            agent_2 = A2CPCAgent(config["base_agent"],
+                                 config["a2c_agent"], 
+                                 device=device,
+                                 n_actions=N_ACTIONS,
+                                 obs_shape=obs.shape)
         else:
-            agent_1 = A2CAgent(config["a2c_agent"], 
-                            device=device,
-                            n_actions=N_ACTIONS,
-                            obs_shape=obs.shape)
+            agent_1 = A2CAgent(config["base_agent"],
+                               config["a2c_agent"], 
+                               device=device,
+                               n_actions=N_ACTIONS,
+                               obs_shape=obs.shape)
 
-            agent_2 = A2CAgent(config["a2c_agent"], 
-                            device=device,
-                            n_actions=N_ACTIONS,
-                            obs_shape=obs.shape)
+            agent_2 = A2CAgent(config["base_agent"],
+                               config["a2c_agent"], 
+                               device=device,
+                               n_actions=N_ACTIONS,
+                               obs_shape=obs.shape)
 
         run_a2c(env=env, 
                 obs=obs, 
@@ -112,17 +119,19 @@ def main(args: DictConfig):
                     n_actions=N_ACTIONS)
 
     elif config["agent_type"] == "rf_nash_ac":
-        agent_1 = ReinforcedNashActorCriticAgent(config["nash_ac_agent"],
+        agent_1 = ReinforcedNashActorCriticAgent(config["base_agent"],
                                                  config["sgd"], 
                                                  device=device,
                                                  n_actions=N_ACTIONS,
-                                                 obs_shape=obs.shape)
+                                                 obs_shape=obs.shape,
+                                                 policy_hist_len=config["rf_nash_ac_agent"]["policy_hist_len"])
 
-        agent_2 = ReinforcedNashActorCriticAgent(config["nash_ac_agent"],
+        agent_2 = ReinforcedNashActorCriticAgent(config["base_agent"],
                                                  config["sgd"], 
                                                  device=device,
                                                  n_actions=N_ACTIONS,
-                                                 obs_shape=obs.shape)
+                                                 obs_shape=obs.shape,
+                                                 policy_hist_len=config["rf_nash_ac_agent"]["policy_hist_len"])
 
         run_rf_nash_ac(env=env, 
                        obs=obs, 

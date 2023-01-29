@@ -7,68 +7,102 @@ import numpy as np
 from functools import reduce
 
 from .models import MLPModel, ConvModel, ReplayMemory, Transition, A2CTransition, \
-                    Actor, NashACTransition
+                    Actor, NashACTransition, RfNashACTransition, LSTMModel
 
+def construct_model(model_type,
+                    in_size,
+                    out_size,
+                    hidden_size,
+                    num_layers,
+                    batch_norm=False,
+                    in_channels=0,
+                    h=0,
+                    w=0,
+                    lstm_out=20):
+    if model_type == "mlp":
+        model = MLPModel(in_size=in_size,
+                         out_size=out_size,
+                         hidden_size=hidden_size,
+                         num_layers=num_layers,
+                         batch_norm=batch_norm)
+    elif model_type == "conv":
+        model = ConvModel(in_channels=history_len,
+                          h=h,
+                          w=w,
+                          out_size=out_size)
+    elif model_type == "lstm":
+        model = LSTMModel(in_size=in_size,
+                          out_size=out_size,
+                          hidden_size=hidden_size,
+                          lstm_out=lstm_out,
+                          num_layers=num_layers)
+    else:
+        raise Exception(model_type, " is not a supported model type for Agents")
+    return model
+
+#TODO: Refactor so that only essentials are stored in BaseAgent, update config appropiately
 class BaseAgent():
     def __init__(self,
                  device,
                  gamma,
                  n_actions,
-                 eps_init,
-                 eps_final,
-                 eps_decay,
                  hidden_size,
                  num_layers,
                  batch_norm, 
                  obs_shape,
-                 buffer_size, 
+                 buffer_size,
+                 use_actions, 
                  model_type="mlp",
                  opt_type="rmsprop",
                  batch_size=128,
                  history_len=0,
                  temperature=1,
                  is_pc=False,
-                 is_nash=False):
+                 is_nash=False,
+                 is_rf_nash=False,
+                 lstm_out=20):
         self.steps_done = 0
         self.device = device
         self.gamma = gamma
         self.n_actions = n_actions
-        self.eps_init = eps_init
-        self.eps_final = eps_final
-        self.eps_decay = eps_decay
         self.hidden_size = hidden_size
+        self.lstm_out = lstm_out
         self.num_layers = num_layers
         self.batch_norm = batch_norm
         self.obs_shape = obs_shape
         self.batch_size = batch_size
         self.history_len = history_len
         self.temperature = temperature
-        self.buffer_size =buffer_size
+        self.buffer_size = buffer_size
         self.model_type = model_type.lower()
         self.opt_type = opt_type.lower()
-        self.obs_size = history_len * reduce(lambda a, b: a * b, self.obs_shape)
-        self.val_obs_size = self.obs_size
-        if is_pc:
-            self.val_obs_size = self.obs_size + self.n_actions
-        elif is_nash:
-             self.val_obs_size = self.obs_size + 2 * self.n_actions
+        self.is_pc = is_pc
+        self.use_actions = use_actions
+        self.obs_size = reduce(lambda a, b: a * b, self.obs_shape)
 
         self.obs_history = []
         self.act_history = []
-        
-        if is_nash:
-            self.val_out_size = 1
+
+        if self.is_pc:
+            self.act_obs_size = self.obs_size + 2 * self.n_actions
+        elif self.use_actions:
+            self.act_obs_size = self.obs_size + 2
         else:
-            self.val_out_size = self.n_actions
+            self.act_obs_size = self.obs_size
+
+        if self.model_type == "lstm":
+            self.val_obs_size = act_obs_size
+        else:
+            self.val_obs_size = self.history_len * act_obs_size
 
         if self.model_type == "mlp":
-            self.q_net = MLPModel(in_size=self.val_obs_size,
-                                  out_size=self.val_out_size,
+            self.q_net = MLPModel(in_size=self.obs_size,
+                                  out_size=self.n_actions,
                                   hidden_size=self.hidden_size,
                                   num_layers=self.num_layers,
                                   batch_norm=self.batch_norm)
-            self.t_net = MLPModel(in_size=self.val_obs_size,
-                                  out_size=self.val_out_size,
+            self.t_net = MLPModel(in_size=self.obs_size,
+                                  out_size=self.n_actions,
                                   hidden_size=self.hidden_size,
                                   num_layers=self.num_layers,
                                   batch_norm=self.batch_norm)
@@ -81,15 +115,29 @@ class BaseAgent():
                                   h=self.obs_shape[0],
                                   w=self.obs_shape[1],
                                   out_size=self.n_actions)
-        else:
-            raise Exception(self.model_type, " is not a supported model type for Agents")
+        # elif self.model_type == "lstm":
+        #     self.obs_size = reduce(lambda a, b: a * b, self.obs_shape) + 2
+        #     if is_nash:
+        #         self.val_obs_size = self.obs_size + 2 * self.n_actions
+        #     self.q_net = LSTMModel(in_size=self.val_obs_size,
+        #                            out_size=self.val_out_size,
+        #                            hidden_size=self.hidden_size,
+        #                            lstm_out=self.lstm_out,
+        #                            num_layers=self.num_layers)
+        #     self.t_net = LSTMModel(in_size=self.val_obs_size,
+        #                            out_size=self.val_out_size,
+        #                            hidden_size=self.hidden_size,
+        #                            lstm_out=self.lstm_out,
+        #                            num_layers=self.num_layers)
+        # else:
+        #     raise Exception(self.model_type, " is not a supported model type for Agents")
 
-        if opt_type.lower() == "rmsprop":
-            self.optimizer = optim.RMSprop(self.q_net.parameters())
+        # if opt_type.lower() == "rmsprop":
+        #     self.optimizer = optim.RMSprop(self.q_net.parameters())
         
-        self.t_net.load_state_dict(self.q_net.state_dict())
-        self.q_net.to(self.device)
-        self.t_net.to(self.device)
+        # self.t_net.load_state_dict(self.q_net.state_dict())
+        # self.q_net.to(self.device)
+        # self.t_net.to(self.device)
 
     def update_history(self, act, state):
         self.act_history.insert(0, torch.tensor(act).to(self.device))
@@ -101,12 +149,21 @@ class BaseAgent():
         curr_hist_delta = self.history_len - len(self.obs_history)
         for i in range(curr_hist_delta):
             self.obs_history.append(torch.zeros(self.obs_shape).to(self.device))
-        return torch.stack(self.obs_history)
+        if self.use_actions:
+            obs_and_acts_hist=[]
+            curr_hist_delta = self.history_len - len(self.act_history)
+            for i in range(curr_hist_delta):
+                self.act_history.append(torch.zeros(2).to(self.device))
+            obs_history = torch.stack(self.obs_history)
+            act_history = torch.stack(self.act_history)
+            return torch.cat([obs_history.reshape(self.history_len, -1), act_history], dim=1)
+        return torch.stack(self.obs_history).reshape(self.history_len, self.obs_size)
 
 class DQNAgent(BaseAgent):
 
     def __init__(self,
                  config,
+                 dqn_config,
                  device,
                  n_actions,
                  obs_shape):
@@ -117,6 +174,35 @@ class DQNAgent(BaseAgent):
                            n_actions=n_actions,
                            obs_shape=obs_shape)
         self.buffer = ReplayMemory(self.buffer_size, "dqn")
+        self.eps_init = dqn_config["eps_init"]
+        self.eps_final = dqn_config["eps_final"]
+        self.eps_decay = dqn_config["eps_decay"]
+
+        self.q_net = construct_model(model_type=self.model_type,
+                                     in_size=self.val_obs_size,
+                                     out_size=self.n_actions,
+                                     hidden_size=self.hidden_size,
+                                     num_layers=self.num_layers,
+                                     batch_norm=self.batch_norm,
+                                     in_channels=self.history_len,
+                                     h=self.obs_shape[0],
+                                     w=self.obs_shape[1])
+        self.t_net = construct_model(model_type=self.model_type,
+                                     in_size=self.val_obs_size,
+                                     out_size=self.n_actions,
+                                     hidden_size=self.hidden_size,
+                                     num_layers=self.num_layers,
+                                     batch_norm=self.batch_norm,
+                                     in_channels=self.history_len,
+                                     h=self.obs_shape[0],
+                                     w=self.obs_shape[1])
+
+        self.t_net.load_state_dict(self.q_net.state_dict())
+        self.q_net.to(self.device)
+        self.t_net.to(self.device)
+
+        if self.opt_type == "rmsprop":
+            self.optimizer = optim.RMSprop(self.q_net.parameters())
 
     def select_action(self, state):
         sample = np.random.uniform(0, 1)
@@ -174,6 +260,7 @@ class DQNAgent(BaseAgent):
 class A2CAgent():
     def __init__(self,
                  config,
+                 a2c_config,
                  device,
                  n_actions,
                  obs_shape):
@@ -182,13 +269,37 @@ class A2CAgent():
                            **config, 
                            device=device,
                            n_actions=n_actions,
-                           obs_shape=obs_shape)
+                           obs_shape=obs_shape,
+                           is_pc=a2c_config["is_pc"])
         self.buffer = ReplayMemory(self.buffer_size, "a2c")
+        self.q_net = construct_model(model_type=self.model_type,
+                                     in_size=self.val_obs_size,
+                                     out_size=self.n_actions,
+                                     hidden_size=self.hidden_size,
+                                     num_layers=self.num_layers,
+                                     batch_norm=self.batch_norm,
+                                     in_channels=self.history_len,
+                                     h=self.obs_shape[0],
+                                     w=self.obs_shape[1])
+        self.t_net = construct_model(model_type=self.model_type,
+                                     in_size=self.val_obs_size,
+                                     out_size=self.n_actions,
+                                     hidden_size=self.hidden_size,
+                                     num_layers=self.num_layers,
+                                     batch_norm=self.batch_norm,
+                                     in_channels=self.history_len,
+                                     h=self.obs_shape[0],
+                                     w=self.obs_shape[1])
         self.actor = Actor(self.obs_size, self.n_actions, self.hidden_size, self.temperature)
+
+        self.t_net.load_state_dict(self.q_net.state_dict())
+        self.q_net.to(self.device)
+        self.t_net.to(self.device)
         self.actor.to(self.device)
         self.transition: list = list()
 
         if self.opt_type.lower() == "rmsprop":
+            self.optimizer = optim.RMSprop(self.q_net.parameters())
             self.actor_optimizer = optim.RMSprop(self.actor.parameters())
 
     def update_history(self, act, state):
@@ -250,6 +361,7 @@ class A2CAgent():
 class A2CPCAgent():
     def __init__(self,
                  config,
+                 a2c_config,
                  device,
                  n_actions,
                  obs_shape):
@@ -259,14 +371,43 @@ class A2CPCAgent():
                            n_actions=n_actions,
                            obs_shape=obs_shape,
                            is_pc=True)
+        BaseAgent.__init__(self,
+                           **config, 
+                           device=device,
+                           n_actions=n_actions,
+                           obs_shape=obs_shape,
+                           is_pc=a2c_config["is_pc"])
         self.buffer = ReplayMemory(self.buffer_size, "a2c")
+        self.q_net = construct_model(model_type=self.model_type,
+                                     in_size=self.val_obs_size,
+                                     out_size=self.n_actions,
+                                     hidden_size=self.hidden_size,
+                                     num_layers=self.num_layers,
+                                     batch_norm=self.batch_norm,
+                                     in_channels=self.history_len,
+                                     h=self.obs_shape[0],
+                                     w=self.obs_shape[1])
+        self.t_net = construct_model(model_type=self.model_type,
+                                     in_size=self.val_obs_size,
+                                     out_size=self.n_actions,
+                                     hidden_size=self.hidden_size,
+                                     num_layers=self.num_layers,
+                                     batch_norm=self.batch_norm,
+                                     in_channels=self.history_len,
+                                     h=self.obs_shape[0],
+                                     w=self.obs_shape[1])
         self.actor = Actor(self.obs_size, self.n_actions, self.hidden_size, self.temperature)
-        self.actor.to(self.device)
         self.o_actor = Actor(self.obs_size, self.n_actions, self.hidden_size, self.temperature)
+
+        self.t_net.load_state_dict(self.q_net.state_dict())
+        self.q_net.to(self.device)
+        self.t_net.to(self.device)
+        self.actor.to(self.device)
         self.o_actor.to(self.device)
         self.transition: list = list()
 
         if self.opt_type.lower() == "rmsprop":
+            self.optimizer = optim.RMSprop(self.q_net.parameters())
             self.actor_optimizer = optim.RMSprop(self.actor.parameters())
 
     def update_history(self, act, state):
@@ -389,6 +530,15 @@ class NashActorCriticAgent():
                                        num_layers=self.num_layers,
                                        batch_norm=self.batch_norm)
             self.surr_q_net.to(self.device)
+        elif self.model_type == "lstm":
+            self.surr_q_net = LSTMModel(in_size=self.val_obs_size,
+                                        out_size=1,
+                                        hidden_size=self.hidden_size,
+                                        lstm_out=self.lstm_out,
+                                        num_layers=self.num_layers)
+            self.surr_q_net.to(self.device)
+        else:
+            raise Exception(self.model_type, " is not a supported model type for Nash Actor Critic Agents")
 
         # Joint surrogate Q-value function and policy optimizer
         self.actor_optimizer = optim.SGD(list(self.surr_q_net.parameters()) + list(self.actor.parameters()), 
@@ -444,6 +594,7 @@ class NashActorCriticAgent():
 
         state_a_b_batch = torch.cat([state_batch.reshape(self.batch_size, self.obs_size), one_hot_a_batch, one_hot_b_batch], dim=1)
         
+        import pdb; pdb.set_trace()
         # Compute Q(s_t, a, b)
         state_action_values = self.q_net(state_a_b_batch)
 
@@ -519,7 +670,7 @@ class ReinforcedNashActorCriticAgent():
                            device=device,
                            n_actions=n_actions,
                            obs_shape=obs_shape,
-                           is_nash=True)
+                           is_rf_nash=True)
         self.buffer = ReplayMemory(self.buffer_size, "nash_ac")
         self.policy_buffer = ReplayMemory(self.buffer_size, "rf_nash_ac")
         self.actor = Actor(self.obs_size, self.n_actions, self.hidden_size, self.temperature)
@@ -564,10 +715,8 @@ class ReinforcedNashActorCriticAgent():
         return dist
 
     def optimize_model(self):
-
-        # TODO: DQN optimization to estimate r^A(s, a, b), r^B(s, a, b)
         # TODO: Reinforce estimation to optimize the policy (Could use soft actions as well)
-        if len(self.buffer) < self.batch_size:
+        if len(self.buffer) < self.batch_size + self.policy_hist_len:
             return None, None
         transitions = self.buffer.sample(self.batch_size)
         # Transpose the batch
@@ -588,46 +737,14 @@ class ReinforcedNashActorCriticAgent():
         b_batch = torch.cat(batch.b)
         reward_batch = torch.cat(batch.reward)
 
-        one_hot_a_batch = torch.zeros((self.batch_size, self.n_actions)).to(self.device)
-        one_hot_b_batch = torch.zeros((self.batch_size, self.n_actions)).to(self.device)
-        one_hot_a_batch = one_hot_a_batch.scatter(1, a_batch.reshape(self.batch_size, 1), 1)
-        one_hot_b_batch = one_hot_b_batch.scatter(1, b_batch.reshape(self.batch_size, 1), 1)
-
-        state_a_b_batch = torch.cat([state_batch.reshape(self.batch_size, self.obs_size), one_hot_a_batch, one_hot_b_batch], dim=1)
+        state_a_b_batch = torch.cat([state_batch.reshape(self.batch_size, self.obs_size), 
+                                    a_batch.reshape(self.batch_size, 1), b_batch.reshape(self.batch_size, 1)], dim=1)
         
-        # Compute Q(s_t, a, b)
+        # Compute r(s_t, a_t, b_t)
         state_action_values = self.q_net(state_a_b_batch)
 
-        # Compute V(s_{t+1}) for all next states.
-        next_state_values = torch.zeros(self.batch_size, device=self.device)
-
-        #Not max anymore, Expectation over the current policies instead. Approximated via sampling
-        with torch.no_grad():
-            next_state_a_policy = self.actor(non_final_next_states.reshape(num_nfns, self.n_actions)).detach()
-            next_state_b_policy = self.o_actor(non_final_next_states.reshape(num_nfns, self.n_actions)).detach()
-
-            # Independent sampling for a', b'
-            cum_next_state_a_policy = torch.cumsum(next_state_a_policy, dim=1)
-            cum_next_state_b_policy = torch.cumsum(next_state_b_policy, dim=1)
-            u_dist_a = torch.rand((self.batch_size, self.n_actions)).to(self.device)
-            u_dist_b = torch.rand((self.batch_size, self.n_actions)).to(self.device)
-            a_prime = torch.argmax((u_dist_a < cum_next_state_a_policy).long(), dim=1)
-            b_prime = torch.argmax((u_dist_b < cum_next_state_b_policy).long(), dim=1)
-
-            # One-hot encoding of a', b'
-            one_hot_a_prime_batch = torch.zeros((self.batch_size, self.n_actions)).to(self.device)
-            one_hot_b_prime_batch = torch.zeros((self.batch_size, self.n_actions)).to(self.device)
-            one_hot_a_prime_batch = one_hot_a_prime_batch.scatter(1, a_prime.reshape(self.batch_size, 1), 1)
-            one_hot_b_prime_batch = one_hot_b_prime_batch.scatter(1, b_prime.reshape(self.batch_size, 1), 1)
-            
-
-            non_final_next_states_and_acts = torch.cat([non_final_next_states.reshape(num_nfns, self.obs_size), one_hot_a_prime_batch, 
-                                                       one_hot_b_prime_batch], dim=1)
-
-            next_state_values[non_final_mask] = self.t_net(non_final_next_states_and_acts).squeeze()
-
-        # Compute the expected Q values
-        expected_state_action_values = (next_state_values * self.gamma) + reward_batch
+        # Compute the expected reward values
+        expected_state_action_values = reward_batch
 
         criterion = nn.SmoothL1Loss()
         value_loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1).detach())
@@ -641,10 +758,15 @@ class ReinforcedNashActorCriticAgent():
         # Set surrogate weights to Q-value function's weights
         self.surr_q_net.load_state_dict(self.t_net.state_dict())
 
-        state, dist_b = self.transition
-        dist_a = self.select_action(state)
-        state_a_b = torch.cat([state.reshape(1, self.obs_size), dist_a.reshape(1, self.n_actions), 
-                              dist_b.reshape(1, self.n_actions)], dim=1)
+        import pdb; pdb.set_trace()
+
+        policy_transitions = self.policy_buffer.sample(self.batch_size)
+        # Transpose the batch
+        policy_batch = RfNashACTransition(*zip(*policy_transitions))
+
+        state_batch = torch.cat(policy_batch.state).reshape(self.batch_size, self.policy_hist_len, self.obs_size)
+        a_batch = torch.cat(policy_batch.a)
+        b_batch = torch.cat(policy_batch.b)
 
         game_value = self.surr_q_net(state_a_b)
 

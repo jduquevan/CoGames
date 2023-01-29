@@ -328,11 +328,12 @@ def run_rf_nash_ac(env,
                    device, 
                    use_history,
                    n_actions):
-    num_episodes = 100000
+    num_episodes = 1000000
     avg_reward_1 = []
     avg_reward_2 = []
     wandb_info = {}
     cum_steps = 0
+    policy_hist_len = agent_1.policy_hist_len
 
     for i_episode in range(num_episodes):
         # Initialize the environment and state
@@ -340,7 +341,9 @@ def run_rf_nash_ac(env,
         episode_rewards = []
         obs, _ = env.reset()
         state =  torch.tensor(obs, dtype=torch.float32 , device=device)
-
+        action_hist_a = []
+        action_hist_b = []
+        state_hist = []
         actions = torch.tensor([-1, -1])
         agent_1.update_history(actions, state)
         agent_2.update_history(actions, state)
@@ -393,8 +396,24 @@ def run_rf_nash_ac(env,
             # Store the transition in memory
             agent_1.buffer.push(state, action_1, action_2, torch.unsqueeze(dist_1, 0).detach(), next_state, reward_1)
             agent_2.buffer.push(state, action_2, action_1, torch.unsqueeze(dist_2, 0).detach(), next_state, reward_2)
-            agent_1.buffer.push(state, action_2, action_1, torch.unsqueeze(dist_2, 0).detach(), next_state, reward_2)
-            agent_2.buffer.push(state, action_1, action_2, torch.unsqueeze(dist_1, 0).detach(), next_state, reward_1)
+
+            # Update histories
+            action_hist_a.insert(0, action_1)
+            action_hist_b.insert(0, action_2)
+            state_hist.insert(0, state)
+
+            action_hist_a = action_hist_a[0:policy_hist_len]
+            action_hist_b = action_hist_b[0:policy_hist_len]
+            state_hist = state_hist[0:policy_hist_len]
+
+            # Store the policy transition in memory
+            if len(action_hist_a) == policy_hist_len:
+                agent_1.policy_buffer.push(torch.cat(state_hist).to(device), 
+                                           torch.cat(action_hist_a).to(device), 
+                                           torch.cat(action_hist_b).to(device))
+                agent_2.policy_buffer.push(torch.cat(state_hist).to(device), 
+                                           torch.cat(action_hist_b).to(device), 
+                                           torch.cat(action_hist_a).to(device))
 
             # Store opponent's current policy
             agent_1.o_actor.load_state_dict(agent_2.actor.state_dict())

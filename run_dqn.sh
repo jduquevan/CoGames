@@ -1,5 +1,5 @@
 #!/bin/bash
-SEEDS=(1 2)
+SEEDS=(1 2 3 4)
 EPS_DECAYS=(5000 10000 50000)
 
 for seed in ${SEEDS[@]}; do

@@ -1,7 +1,7 @@
 #!/bin/bash
-SEEDS=(7)
-HIST_LENS=(2)
-TEMPS=(6 8 10)
+SEEDS=(1 3 5 7)
+HIST_LENS=(3)
+TEMPS=(6 8)
 LRS=(0.0001 0.0005 0.001 0.005)
 
 for seed in ${SEEDS[@]}; do

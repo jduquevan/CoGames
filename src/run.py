@@ -96,13 +96,15 @@ def main(args: DictConfig):
                 n_actions=N_ACTIONS)
 
     elif config["agent_type"] == "nash_ac":
-        agent_1 = NashActorCriticAgent(config["nash_ac_agent"],
+        agent_1 = NashActorCriticAgent(config["base_agent"],
+                                       config["nash_ac_agent"],
                                        config["sgd"], 
                                        device=device,
                                        n_actions=N_ACTIONS,
                                        obs_shape=obs.shape)
 
-        agent_2 = NashActorCriticAgent(config["nash_ac_agent"],
+        agent_2 = NashActorCriticAgent(config["base_agent"],
+                                       config["nash_ac_agent"],
                                        config["sgd"], 
                                        device=device,
                                        n_actions=N_ACTIONS,

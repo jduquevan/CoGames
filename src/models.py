@@ -135,3 +135,15 @@ class LSTMModel(nn.Module):
         # h_0 defaults to 0
         x, hidden = self.lstm(x)
         return self.out_layer(x[:,-1,:])
+
+class LinearQHead(nn.Module):
+    def __init__(self, in_size, out_size):
+        super(LinearQHead, self).__init__()
+
+        self.in_size = in_size
+        self.out_size = out_size
+
+        self.linear = nn.Linear(self.in_size, self.out_size)
+
+    def forward(self, x):
+        return self.linear(x)

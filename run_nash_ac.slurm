@@ -36,7 +36,7 @@ eval "$(conda shell.bash hook)"
 conda activate cogames
 
 python -m src.run seed=${1} agent_type="nash_ac" use_history=True\
-    nash_ac_agent.model_type="mlp" nash_ac_agent.history_len=${2}\
-    nash_ac_agent.temperature=${3} sgd.lr=${4}
+    base_agent.model_type="lstm" base_agent.history_len=${2}\
+    base_agent.use_actions=True nash_ac_agent.temperature=${3} sgd.lr=${4}
 
-#python -m src.run seed=1 agent_type="nash_ac" use_history=True nash_ac_agent.use_actions=True nash_ac_agent.model_type="lstm" nash_ac_agent.history_len=2 nash_ac_agent.temperature=2
+#python -m src.run seed=1 agent_type="nash_ac" use_history=True base_agent.use_actions=True base_agent.model_type="lstm" base_agent.use_actions=True base_agent.history_len=2 nash_ac_agent.temperature=2

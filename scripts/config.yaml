@@ -28,18 +28,7 @@ dqn_agent:
 a2c_agent:
   is_pc: False
 nash_ac_agent:
-  gamma: 0.999
-  eps_final: 0
-  eps_init: 1
-  eps_decay: 500
-  buffer_size: 10000
-  hidden_size: 40
-  num_layers: 0
-  batch_norm: False
-  model_type: "mlp"
-  use_actions: False
-  batch_size: 128
-  history_len: 2
+  lstm_out: 20
   temperature: 1
 rf_nash_ac_agent:
   policy_hist_len: 8

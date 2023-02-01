@@ -295,8 +295,8 @@ def run_nash_ac(env,
             state = next_state
 
             # Perform one step of the optimization (on the policy network)
-            game_value_1, value_loss_1 = agent_1.optimize_model()
-            game_value_2, value_loss_2 = agent_2.optimize_model()
+            game_value_1, value_loss_1 = agent_1.optimize_model(cum_steps)
+            game_value_2, value_loss_2 = agent_2.optimize_model(cum_steps)
 
             # Logging info
             cum_steps+=1
@@ -327,7 +327,8 @@ def run_rf_nash_ac(env,
                    reward_window, 
                    device, 
                    use_history,
-                   n_actions):
+                   n_actions,
+                   is_p_pc=False):
     num_episodes = 1000000
     avg_reward_1 = []
     avg_reward_2 = []
@@ -426,8 +427,12 @@ def run_rf_nash_ac(env,
             state = next_state
 
             # Perform one step of the optimization (on the reward and policy networks)
-            game_value_1, value_loss_1 = agent_1.optimize_model()
-            game_value_2, value_loss_2 = agent_2.optimize_model()
+            if np.random.binomial(1, 1/2):
+                game_value_1, value_loss_1 = agent_1.optimize_model()
+                game_value_2, value_loss_2 = agent_2.optimize_model()
+            else:
+                game_value_2, value_loss_2 = agent_2.optimize_model()
+                game_value_1, value_loss_1 = agent_1.optimize_model()
 
             # Logging info
             cum_steps+=1

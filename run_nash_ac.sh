@@ -1,8 +1,8 @@
 #!/bin/bash
-SEEDS=(1 3 5 7)
-HIST_LENS=(3)
-TEMPS=(6 8)
-LRS=(0.0001 0.0005 0.001 0.005)
+SEEDS=(27)
+HIST_LENS=(2)
+TEMPS=(2 6 8)
+LRS=(0.0001 0.0005 0.001 0.005 0.05 0.1)
 
 for seed in ${SEEDS[@]}; do
     for hist_len in ${HIST_LENS[@]}; do

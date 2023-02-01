@@ -122,18 +122,18 @@ def main(args: DictConfig):
 
     elif config["agent_type"] == "rf_nash_ac":
         agent_1 = ReinforcedNashActorCriticAgent(config["base_agent"],
+                                                 config["rf_nash_ac_agent"],
                                                  config["sgd"], 
                                                  device=device,
                                                  n_actions=N_ACTIONS,
-                                                 obs_shape=obs.shape,
-                                                 policy_hist_len=config["rf_nash_ac_agent"]["policy_hist_len"])
+                                                 obs_shape=obs.shape)
 
         agent_2 = ReinforcedNashActorCriticAgent(config["base_agent"],
+                                                 config["rf_nash_ac_agent"],
                                                  config["sgd"], 
                                                  device=device,
                                                  n_actions=N_ACTIONS,
-                                                 obs_shape=obs.shape,
-                                                 policy_hist_len=config["rf_nash_ac_agent"]["policy_hist_len"])
+                                                 obs_shape=obs.shape)
 
         run_rf_nash_ac(env=env, 
                        obs=obs, 
@@ -143,7 +143,8 @@ def main(args: DictConfig):
                        reward_window=reward_window, 
                        device=device, 
                        use_history=use_history,
-                       n_actions=N_ACTIONS)
+                       n_actions=N_ACTIONS,
+                       is_p_pc=config["rf_nash_ac_agent"]["is_p_pc"])
         
 
 if __name__ == "__main__":

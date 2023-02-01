@@ -91,7 +91,6 @@ class MLPModel(nn.Module):
             if self.batch_norm:
                 self.bns.append(nn.BatchNorm1d(hidden_size))
         self.out_layer = nn.Linear(self.hidden_size, self.out_size)
-        self.softmax = nn.Softmax(dim=1)
 
     def forward(self, x):
         x = F.relu(self.in_layer(x))
@@ -103,19 +102,25 @@ class MLPModel(nn.Module):
         return self.out_layer(x)
 
 class Actor(nn.Module):
-    def __init__(self, in_size, out_size, hidden_size, temperature=1):
+    def __init__(self, in_size, out_size, hidden_size, temperature=1, num_hidden=0):
         super(Actor, self).__init__()
 
         self.in_size = in_size
         self.out_size = out_size
         self.hidden_size = hidden_size
         self.temperature = temperature
+        self.num_hidden = num_hidden
+        self.hidden = []
         
-        self.hidden1 = nn.Linear(in_size, hidden_size)
+        self.in_layer = nn.Linear(in_size, hidden_size)
+        for i in range(self.num_hidden):
+            self.hidden.append(nn.Linear(self.hidden_size, self.hidden_size))
         self.out_layer = nn.Linear(hidden_size, out_size)     
 
     def forward(self, state):
-        x = F.relu(self.hidden1(state), inplace=False)
+        x = F.relu(self.in_layer(state), inplace=False)
+        for i in range(self.num_hidden):
+            x = F.relu(self.hidden[i](x))
         return F.softmax(self.out_layer(x)/self.temperature)
 
 class LSTMModel(nn.Module):

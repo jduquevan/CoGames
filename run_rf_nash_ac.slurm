@@ -39,4 +39,4 @@ python -m src.run seed=${1} agent_type="rf_nash_ac" use_history=True  base_agent
     base_agent.model_type="lstm" base_agent.history_len=${2} rf_nash_ac_agent.temperature=${3} sgd.lr=${4} \
     rf_nash_ac_agent.policy_hist_len=${5} rf_nash_ac_agent.is_p_pc=True
 
-#python -m src.run seed=1 agent_type="rf_nash_ac" use_history=True base_agent.use_actions=True base_agent.model_type="lstm" base_agent.history_len=2 rf_nash_ac_agent.temperature=2 rf_nash_ac_agent.is_p_pc=True
+# python -m src.run seed=1 agent_type="rf_nash_ac" use_history=True base_agent.use_actions=True base_agent.model_type="lstm" base_agent.history_len=2 rf_nash_ac_agent.temperature=2 rf_nash_ac_agent.is_p_pc=True

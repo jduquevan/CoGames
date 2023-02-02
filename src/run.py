@@ -126,7 +126,8 @@ def main(args: DictConfig):
                                                  config["sgd"], 
                                                  device=device,
                                                  n_actions=N_ACTIONS,
-                                                 obs_shape=obs.shape)
+                                                 obs_shape=obs.shape,
+                                                 is_agent=True)
 
         agent_2 = ReinforcedNashActorCriticAgent(config["base_agent"],
                                                  config["rf_nash_ac_agent"],

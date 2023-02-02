@@ -6,6 +6,7 @@ import numpy as np
 
 from functools import reduce
 
+from .coin_game import CoinGame
 from .models import MLPModel, ConvModel, ReplayMemory, Transition, A2CTransition, \
                     Actor, NashACTransition, RfNashACTransition, LSTMModel, LinearQHead
 
@@ -705,20 +706,25 @@ class ReinforcedNashActorCriticAgent(BaseAgent):
                  sgd_config,
                  device,
                  n_actions,
-                 obs_shape):
+                 obs_shape,
+                 is_agent=False):
         BaseAgent.__init__(self,
                            **config, 
                            device=device,
                            n_actions=n_actions,
                            obs_shape=obs_shape,
                            is_rf_nash=True)
+        self.is_agent = is_agent
         self.q_head_params = []
         self.surr_q_head_params = []
         self.actor_in_size = self.history_len * self.act_obs_size
         self.policy_hist_len = rf_nash_ac_config["policy_hist_len"]
-        self.is_p_pc = rf_nash_ac_config["is_p_pc"]
+        self.is_p_pc = rf_nash_ac_config["is_p_pc"] and not self.is_agent
+
         self.num_hidden = 0 if self.is_p_pc else 1
         self.actor_in_size = self.actor_in_size + self.n_actions if self.is_p_pc else self.actor_in_size
+        self.o_actor_in_size = self.history_len * self.act_obs_size if self.is_p_pc else self.actor_in_size + self.n_actions
+
         if self.model_type == "lstm":
             self.out_size = rf_nash_ac_config["lstm_out"]
             self.q_head = LinearQHead(self.out_size + 2 * self.n_actions, 1)
@@ -730,7 +736,7 @@ class ReinforcedNashActorCriticAgent(BaseAgent):
         else:
             self.out_size = 1
 
-        self.buffer = ReplayMemory(self.buffer_size, "nash_ac")
+        self.buffer = ReplayMemory(self.buffer_size, "rf_nash_ac")
         self.policy_buffer = ReplayMemory(self.buffer_size, "rf_nash_ac")
         self.q_net = construct_model(model_type=self.model_type,
                                      in_size=self.val_obs_size,
@@ -759,8 +765,8 @@ class ReinforcedNashActorCriticAgent(BaseAgent):
                                           in_channels=self.history_len,
                                           h=self.obs_shape[0],
                                           w=self.obs_shape[1])
-        self.actor = Actor(self.actor_in_size, self.n_actions, self.hidden_size, self.temperature, self.num_hidden)
-        self.o_actor = Actor(self.actor_in_size, self.n_actions, self.hidden_size, self.temperature, self.num_hidden)
+        self.actor = Actor(self.actor_in_size, self.n_actions, self.hidden_size, self.temperature, 0)
+        self.o_actor = Actor(self.o_actor_in_size, self.n_actions, self.hidden_size, self.temperature, 0)
 
         self.t_net.load_state_dict(self.q_net.state_dict())
         self.q_net.to(self.device)
@@ -769,6 +775,7 @@ class ReinforcedNashActorCriticAgent(BaseAgent):
         self.actor.to(self.device)
         self.o_actor.to(self.device)
         self.transition: list = list()
+        self.model = CoinGame(2, 1)
 
         # Value optimizers
         if self.opt_type.lower() == "rmsprop":
@@ -781,13 +788,12 @@ class ReinforcedNashActorCriticAgent(BaseAgent):
                                          momentum=sgd_config["momentum"],
                                          maximize=True)
 
-    def select_action(self, state):
+    def select_action(self, state, dist_b=None):
         self.steps_done += 1
         if self.is_p_pc:
-            dist = self.actor(torch.cat([state.flatten(), -1*torch.ones(self.n_actions).to(self.device)]))
-            dist_b = self.o_actor(torch.cat([state.flatten(), dist]))
+            dist = self.actor(torch.cat([state.flatten(), dist_b]))
         else:
-            dist = self.actor(state.clone().flatten())
+            dist = self.actor(state.flatten())
 
         return dist
 
@@ -809,40 +815,27 @@ class ReinforcedNashActorCriticAgent(BaseAgent):
         if len(self.buffer) < self.batch_size + self.policy_hist_len:
             return None, None
         transitions = self.buffer.sample(self.batch_size)
+
         # Transpose the batch
-        batch = NashACTransition(*zip(*transitions))
-
-        # Compute a mask of non-final states and concatenate the batch elements
-        # (a final state would've been the one after which simulation ended)
-        non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
-                                            batch.next_state)), device=self.device, dtype=torch.bool)
-        non_final_next_states = torch.stack([s for s in batch.next_state
-                                                    if s is not None]).float()
-        non_final_index = non_final_mask.nonzero()
-
-        num_nfns = non_final_next_states.shape[0]
+        batch = RfNashACTransition(*zip(*transitions))
 
         state_batch = torch.cat(batch.state)
         a_batch = torch.cat(batch.a)
         b_batch = torch.cat(batch.b)
         reward_batch = torch.cat(batch.reward)
 
-        one_hot_a_batch = torch.zeros((self.batch_size, self.n_actions)).to(self.device)
-        one_hot_b_batch = torch.zeros((self.batch_size, self.n_actions)).to(self.device)
-        one_hot_a_batch = one_hot_a_batch.scatter(1, a_batch.reshape(self.batch_size, 1), 1)
-        one_hot_b_batch = one_hot_b_batch.scatter(1, b_batch.reshape(self.batch_size, 1), 1)
-
         # Compute r(s_t, a_t, b_t)
         if self.model_type == "lstm":
-            state_action_values = self.lstm_q_net_forward(state_batch, one_hot_a_batch, one_hot_b_batch, False)
+            state_action_values = self.lstm_q_net_forward(state_batch, a_batch, b_batch, False)
         else:
-            state_a_b_batch = torch.cat([state_batch.reshape(self.batch_size, self.obs_size), one_hot_a_batch, one_hot_b_batch], dim=1)
+            state_a_b_batch = torch.cat([state_batch.reshape(self.batch_size, self.obs_size), a_batch, b_batch], dim=1)
             state_action_values = self.q_net(state_a_b_batch)
 
         # Compute the expected reward values
         expected_state_action_values = reward_batch
 
-        criterion = nn.SmoothL1Loss()
+        # Want to estimate mean instead of median
+        criterion = nn.MSELoss()
         value_loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1).detach())
 
         self.optimizer.zero_grad()
@@ -855,40 +848,52 @@ class ReinforcedNashActorCriticAgent(BaseAgent):
         self.surr_q_net.load_state_dict(self.t_net.state_dict())
         self.surr_q_head.load_state_dict(self.q_head.state_dict())
 
-        policy_transitions = self.policy_buffer.sample(self.batch_size)
-        # Transpose the batch
-        policy_batch = RfNashACTransition(*zip(*policy_transitions))
-
-        state_batch = torch.cat(policy_batch.state).reshape(self.batch_size, self.policy_hist_len, self.history_len, self.act_obs_size)
-        a_batch = torch.cat(policy_batch.a).reshape(self.batch_size, self.policy_hist_len)
-        b_batch = torch.cat(policy_batch.b).reshape(self.batch_size, self.policy_hist_len)
+        # Use surrogate r^A(s, a, b), to optimize \pi^A(s)
+        state, dist_b = self.transition
 
         estimated_rewards = []
-        # Compute reinforce estimator from replay buffer 
+        self.model.grid = state[0, 0, 0:self.obs_size].reshape(1, self.obs_size).cpu().detach().numpy()
+        # Use surrogate r^A(s, a, b), and monte-carlo rollout to optimize \pi^A(s)
         for i in range(self.policy_hist_len):
-            state_t_batch = state_batch[:, i, :, :]
-            if self.is_p_pc:
-                dist_a_t = self.actor(torch.cat([state_t_batch.reshape(self.batch_size, self.history_len * self.act_obs_size), 
-                                          -1 * torch.ones(self.batch_size, self.n_actions).to(self.device)], dim=1))
-                dist_b_t = self.o_actor(torch.cat([state_t_batch.reshape(self.batch_size, self.history_len * self.act_obs_size), 
-                                                  dist_a_t], dim=1))
+            last_state = state[:, 1: , :].reshape(1, self.history_len * self.obs_size).cpu().detach().numpy()
+            if self.is_agent:
+                dist_a = self.actor(state.flatten())
+                dist_b = self.o_actor(torch.cat([state.flatten(), dist_a.flatten()]))
             else:
-                dist_a_t = self.actor(state_t_batch.reshape(self.batch_size, self.actor_in_size))
-                dist_b_t = self.o_actor(state_t_batch.reshape(self.batch_size, self.actor_in_size))
+                dist_b = self.o_actor(state.flatten())
+                dist_a = self.actor(torch.cat([state.flatten(), dist_b.flatten()]))
 
-            a_t_prob = torch.take(dist_a_t, a_batch[:, i])
-            b_t_prob = torch.take(dist_b_t, b_batch[:, i])
-            a_b_prob = (a_t_prob * b_t_prob).detach()
+            action_a = np.array([np.random.choice(self.n_actions, p=dist_a.cpu().detach().numpy())])
+            action_b = np.array([np.random.choice(self.n_actions, p=dist_b.cpu().detach().numpy())])
+            
+            curr_state, rewards, done, _, _ = self.model.step((action_a, action_b))
+            curr_state = np.concatenate([curr_state, action_a.reshape(1, 1), action_b.reshape(1, 1)], axis=1)
 
-            one_hot_b_t_batch = torch.zeros((self.batch_size, self.n_actions)).to(self.device)
-            one_hot_b_t_batch = one_hot_b_t_batch.scatter(1, b_batch[:, i].reshape(self.batch_size, 1), 1)
+            state = torch.tensor(np.expand_dims(np.concatenate([curr_state ,last_state]), 0), 
+                                 requires_grad=False, 
+                                 device=self.device,
+                                 dtype=torch.float32)
 
-            state_action_rewards = a_b_prob.reshape(self.batch_size, 1) * self.lstm_q_net_forward(state_t_batch, dist_a_t, dist_b_t, True)
-            estimated_rewards.append(state_action_rewards)
+            if self.model_type == "lstm":
+                estimated_reward = self.lstm_q_net_forward(state, 
+                                                           dist_a.reshape(1, self.n_actions), 
+                                                           dist_b.reshape(1, self.n_actions), 
+                                                           True)
+            else:
+                state_a_b_batch = torch.cat([state.reshape(1, self.obs_size * self.history_len), 
+                                            dist_a.reshape(1, self.n_actions), 
+                                            dist_b.reshape(1, self.n_actions)], 
+                                            dim=1)
+                estimated_reward = self.q_net(state_a_b_batch)
 
-        game_value = torch.sum(torch.cat(estimated_rewards, dim=1))/(self.batch_size * self.policy_hist_len)
+            a_t_prob = torch.take(dist_a, torch.tensor(action_a, requires_grad=False, device=self.device))
+            b_t_prob = torch.take(dist_b, torch.tensor(action_b, requires_grad=False, device=self.device))
 
-        # Use surrogate r^A(s, a, b), to optimize \pi^A(s)
+            estimated_reward = estimated_reward * a_t_prob.detach() * b_t_prob.detach()
+            estimated_rewards.append(estimated_reward)
+
+        game_value = torch.sum(torch.cat(estimated_rewards, dim=0))/self.policy_hist_len
+
         self.actor_optimizer.zero_grad()
         game_value.backward()
         self.actor_optimizer.step()

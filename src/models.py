@@ -15,7 +15,7 @@ A2CTransition = namedtuple('Transition',
 NashACTransition = namedtuple('Transition',
                               ('state', 'a', 'b', 'dist', 'next_state', 'reward'))
 RfNashACTransition = namedtuple('Transition',
-                                ('state', 'a', 'b'))
+                                ('state', 'a', 'b', 'reward'))
 
 def initialize_uniformly(layer: nn.Linear, init_w: float = 3e-3):
     """Initialize the weights and bias in [-init_w, init_w]."""

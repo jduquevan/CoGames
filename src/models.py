@@ -113,14 +113,12 @@ class Actor(nn.Module):
         self.hidden = []
         
         self.in_layer = nn.Linear(in_size, hidden_size)
-        for i in range(self.num_hidden):
-            self.hidden.append(nn.Linear(self.hidden_size, self.hidden_size))
+        self.hidden_layer = nn.Linear(hidden_size, hidden_size)
         self.out_layer = nn.Linear(hidden_size, out_size)     
 
     def forward(self, state):
         x = F.relu(self.in_layer(state), inplace=False)
-        for i in range(self.num_hidden):
-            x = F.relu(self.hidden[i](x))
+        x = F.relu(self.hidden_layer(x), inplace=False)
         return F.softmax(self.out_layer(x)/self.temperature)
 
 class LSTMModel(nn.Module):

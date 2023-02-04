@@ -11,8 +11,8 @@ reward_window: 10
 is_pc: False
 base_agent:
   gamma: 0.999
-  buffer_size: 10000
-  hidden_size: 40
+  buffer_size: 100000
+  hidden_size: 128
   num_layers: 0
   batch_norm: False
   model_type: "mlp"
@@ -20,6 +20,7 @@ base_agent:
   batch_size: 128
   history_len: 2
   temperature: 1
+  opt_type: "sgd"
 dqn_agent:
   gamma: 0.999
   eps_final: 0
@@ -37,4 +38,8 @@ rf_nash_ac_agent:
   is_p_pc: False
 sgd:
   lr: 0.0001
+  momentum: 0.9
+optim:
+  lr: 0.001
+  adam_lr: 0.0001
   momentum: 0.9

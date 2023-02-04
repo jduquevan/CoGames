@@ -11,8 +11,8 @@ from omegaconf import DictConfig, OmegaConf
 from typing import Any, Dict, Optional
 
 from .coin_game import CoinGame
-from .agents import DQNAgent, A2CAgent, A2CPCAgent, NashActorCriticAgent, ReinforcedNashActorCriticAgent
-from .algos import run_dqn, run_a2c, run_nash_ac, run_rf_nash_ac
+from .agents import DQNAgent, A2CAgent, A2CPCAgent, NashActorCriticAgent, ReinforcedNashActorCriticAgent, SRNashActorCriticAgent
+from .algos import run_dqn, run_a2c, run_nash_ac, run_rf_nash_ac, run_sr_nash_ac
 
 N_ACTIONS = 4
 
@@ -123,7 +123,7 @@ def main(args: DictConfig):
     elif config["agent_type"] == "rf_nash_ac":
         agent_1 = ReinforcedNashActorCriticAgent(config["base_agent"],
                                                  config["rf_nash_ac_agent"],
-                                                 config["sgd"], 
+                                                 config["optim"], 
                                                  device=device,
                                                  n_actions=N_ACTIONS,
                                                  obs_shape=obs.shape,
@@ -131,12 +131,38 @@ def main(args: DictConfig):
 
         agent_2 = ReinforcedNashActorCriticAgent(config["base_agent"],
                                                  config["rf_nash_ac_agent"],
-                                                 config["sgd"], 
+                                                 config["optim"], 
                                                  device=device,
                                                  n_actions=N_ACTIONS,
                                                  obs_shape=obs.shape)
 
         run_rf_nash_ac(env=env, 
+                       obs=obs, 
+                       agent_1=agent_1, 
+                       agent_2=agent_2, 
+                       target_steps=target_steps, 
+                       reward_window=reward_window, 
+                       device=device, 
+                       use_history=use_history,
+                       n_actions=N_ACTIONS,
+                       is_p_pc=config["rf_nash_ac_agent"]["is_p_pc"])
+
+    elif config["agent_type"] == "s_rf_nash_ac":
+        agent_1 = SRNashActorCriticAgent(config["base_agent"],
+                                         config["rf_nash_ac_agent"],
+                                         config["optim"], 
+                                         device=device,
+                                         n_actions=N_ACTIONS,
+                                         obs_shape=obs.shape)
+
+        agent_2 = SRNashActorCriticAgent(config["base_agent"],
+                                         config["rf_nash_ac_agent"],
+                                         config["optim"], 
+                                         device=device,
+                                         n_actions=N_ACTIONS,
+                                         obs_shape=obs.shape)
+
+        run_sr_nash_ac(env=env, 
                        obs=obs, 
                        agent_1=agent_1, 
                        agent_2=agent_2, 

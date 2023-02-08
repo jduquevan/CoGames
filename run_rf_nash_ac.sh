@@ -3,7 +3,7 @@ SEEDS=(1 5 7)
 HIST_LENS=(2)
 TEMPS=(6 8)
 POLICY_LENS=(8 16)
-LRS=(0.0005)
+LRS=(0.00005 0.0001 0.0005)
 
 for seed in ${SEEDS[@]}; do
     for hist_len in ${HIST_LENS[@]}; do

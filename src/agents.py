@@ -8,7 +8,7 @@ from functools import reduce
 
 from .coin_game import CoinGame
 from .models import MLPModel, ConvModel, ReplayMemory, Transition, A2CTransition, \
-                    Actor, NashACTransition, RfNashACTransition, LSTMModel, LinearQHead
+                    Actor, NashACTransition, RfNashACTransition, LSTMModel, LSTMHead
 
 def construct_model(model_type,
                     in_size,
@@ -19,7 +19,8 @@ def construct_model(model_type,
                     in_channels=0,
                     h=0,
                     w=0,
-                    lstm_out=20):
+                    lstm_out=20,
+                    temperature=1):
     if model_type == "mlp":
         model = MLPModel(in_size=in_size,
                          out_size=out_size,
@@ -54,6 +55,7 @@ class BaseAgent():
                  buffer_size,
                  use_actions, 
                  model_type="mlp",
+                 actor_type="lstm",
                  opt_type="rmsprop",
                  batch_size=128,
                  history_len=0,
@@ -76,6 +78,7 @@ class BaseAgent():
         self.temperature = temperature
         self.buffer_size = buffer_size
         self.model_type = model_type.lower()
+        self.actor_type = actor_type.lower()
         self.opt_type = opt_type.lower()
         self.is_pc = is_pc
         self.use_actions = use_actions
@@ -116,29 +119,6 @@ class BaseAgent():
                                   h=self.obs_shape[0],
                                   w=self.obs_shape[1],
                                   out_size=self.n_actions)
-        # elif self.model_type == "lstm":
-        #     self.obs_size = reduce(lambda a, b: a * b, self.obs_shape) + 2
-        #     if is_nash:
-        #         self.val_obs_size = self.obs_size + 2 * self.n_actions
-        #     self.q_net = LSTMModel(in_size=self.val_obs_size,
-        #                            out_size=self.val_out_size,
-        #                            hidden_size=self.hidden_size,
-        #                            lstm_out=self.lstm_out,
-        #                            num_layers=self.num_layers)
-        #     self.t_net = LSTMModel(in_size=self.val_obs_size,
-        #                            out_size=self.val_out_size,
-        #                            hidden_size=self.hidden_size,
-        #                            lstm_out=self.lstm_out,
-        #                            num_layers=self.num_layers)
-        # else:
-        #     raise Exception(self.model_type, " is not a supported model type for Agents")
-
-        # if opt_type.lower() == "rmsprop":
-        #     self.optimizer = optim.RMSprop(self.q_net.parameters())
-        
-        # self.t_net.load_state_dict(self.q_net.state_dict())
-        # self.q_net.to(self.device)
-        # self.t_net.to(self.device)
 
     def update_history(self, act, state):
         self.act_history.insert(0, torch.tensor(act).to(self.device))
@@ -517,8 +497,8 @@ class NashActorCriticAgent(BaseAgent):
         self.actor_in_size = self.history_len * self.act_obs_size
         if self.model_type == "lstm":
             self.out_size = nash_ac_config["lstm_out"]
-            self.q_head = LinearQHead(self.out_size + 2 * self.n_actions, 1)
-            self.surr_q_head = LinearQHead(self.out_size + 2 * self.n_actions, 1)
+            self.q_head = LSTMHead(self.out_size + 2 * self.n_actions, 1)
+            self.surr_q_head = LSTMHead(self.out_size + 2 * self.n_actions, 1)
             self.q_head.to(self.device)
             self.surr_q_head.to(self.device)
             self.q_head_params = list(self.q_head.parameters())
@@ -727,8 +707,8 @@ class ReinforcedNashActorCriticAgent(BaseAgent):
 
         if self.model_type == "lstm":
             self.out_size = rf_nash_ac_config["lstm_out"]
-            self.q_head = LinearQHead(self.out_size + 2 * self.n_actions, 1)
-            self.surr_q_head = LinearQHead(self.out_size + 2 * self.n_actions, 1)
+            self.q_head = LSTMHead(self.out_size + 2 * self.n_actions, 1)
+            self.surr_q_head = LSTMHead(self.out_size + 2 * self.n_actions, 1)
             self.q_head.to(self.device)
             self.surr_q_head.to(self.device)
             self.q_head_params = list(self.q_head.parameters())
@@ -825,6 +805,16 @@ class ReinforcedNashActorCriticAgent(BaseAgent):
 
         # Transpose the batch
         batch = RfNashACTransition(*zip(*transitions))
+
+         # Compute a mask of non-final states and concatenate the batch elements
+        # (a final state would've been the one after which simulation ended)
+        non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
+                                            batch.next_state)), device=self.device, dtype=torch.bool)
+        non_final_next_states = torch.stack([s for s in batch.next_state
+                                                    if s is not None]).float()
+        non_final_index = non_final_mask.nonzero()
+
+        num_nfns = non_final_next_states.shape[0]
 
         state_batch = torch.cat(batch.state)
         a_batch = torch.cat(batch.a)
@@ -923,30 +913,33 @@ class SRNashActorCriticAgent(BaseAgent):
                            n_actions=n_actions,
                            obs_shape=obs_shape,
                            is_rf_nash=True)
-        self.q_head_params = []
         self.surr_q_head_params = []
         self.actor_in_size = self.history_len * self.act_obs_size
         self.policy_hist_len = rf_nash_ac_config["policy_hist_len"]
         self.is_p_pc = rf_nash_ac_config["is_p_pc"]
 
-        self.num_hidden = 0
-        self.actor_in_size = self.actor_in_size + self.n_actions if self.is_p_pc else self.actor_in_size
-        self.o_actor_in_size = self.actor_in_size
-
-        if self.model_type == "lstm":
+        if self.actor_type == "lstm":
             self.out_size = rf_nash_ac_config["lstm_out"]
-            self.q_head = LinearQHead(self.out_size + 2 * self.n_actions, 1)
-            self.surr_q_head = LinearQHead(self.out_size + 2 * self.n_actions, 1)
-            self.q_head.to(self.device)
-            self.surr_q_head.to(self.device)
-            self.q_head_params = list(self.q_head.parameters())
-            self.surr_q_head_params = list(self.surr_q_head.parameters())
+            self.actor_head = LSTMHead(self.out_size + self.n_actions, self.n_actions, softmax=True, temperature=self.temperature)
+            self.o_actor_head = LSTMHead(self.out_size + self.n_actions, self.n_actions, softmax=True, temperature=self.temperature)
+            self.actor_head.to(self.device)
+            self.o_actor_head.to(self.device)
+            self.actor_head_params = list(self.actor_head.parameters())
         else:
-            self.out_size = 1
+            self.out_size = self.n_actions
 
-        self.buffer = ReplayMemory(self.buffer_size, "rf_nash_ac")
+        self.buffer = ReplayMemory(self.buffer_size, "nash_ac")
         self.q_net = construct_model(model_type=self.model_type,
-                                     in_size=self.val_obs_size,
+                                     in_size=self.obs_size + (2 * self.n_actions),
+                                     out_size=1,
+                                     hidden_size=self.hidden_size,
+                                     num_layers=self.num_layers,
+                                     batch_norm=self.batch_norm,
+                                     in_channels=self.history_len,
+                                     h=self.obs_shape[0],
+                                     w=self.obs_shape[1])
+        self.actor = construct_model(model_type=self.actor_type,
+                                     in_size=self.obs_size + 2,
                                      out_size=self.out_size,
                                      hidden_size=self.hidden_size,
                                      num_layers=self.num_layers,
@@ -954,31 +947,17 @@ class SRNashActorCriticAgent(BaseAgent):
                                      in_channels=self.history_len,
                                      h=self.obs_shape[0],
                                      w=self.obs_shape[1])
-        self.t_net = construct_model(model_type=self.model_type,
-                                     in_size=self.val_obs_size,
-                                     out_size=self.out_size,
-                                     hidden_size=self.hidden_size,
-                                     num_layers=self.num_layers,
-                                     batch_norm=self.batch_norm,
-                                     in_channels=self.history_len,
-                                     h=self.obs_shape[0],
-                                     w=self.obs_shape[1])
-        self.surr_q_net = construct_model(model_type=self.model_type,
-                                          in_size=self.val_obs_size,
-                                          out_size=self.out_size,
-                                          hidden_size=self.hidden_size,
-                                          num_layers=self.num_layers,
-                                          batch_norm=self.batch_norm,
-                                          in_channels=self.history_len,
-                                          h=self.obs_shape[0],
-                                          w=self.obs_shape[1])
-        self.actor = Actor(self.actor_in_size, self.n_actions, self.hidden_size, self.temperature, 0)
-        self.o_actor = Actor(self.o_actor_in_size, self.n_actions, self.hidden_size, self.temperature, 0)
+        self.o_actor = construct_model(model_type=self.actor_type,
+                                       in_size=self.obs_size + 2,
+                                       out_size=self.out_size,
+                                       hidden_size=self.hidden_size,
+                                       num_layers=self.num_layers,
+                                       batch_norm=self.batch_norm,
+                                       in_channels=self.history_len,
+                                       h=self.obs_shape[0],
+                                       w=self.obs_shape[1])
 
-        self.t_net.load_state_dict(self.q_net.state_dict())
         self.q_net.to(self.device)
-        self.t_net.to(self.device)
-        self.surr_q_net.to(self.device)
         self.actor.to(self.device)
         self.o_actor.to(self.device)
         self.transition: list = list()
@@ -986,9 +965,8 @@ class SRNashActorCriticAgent(BaseAgent):
 
         # Value optimizers
         if self.opt_type.lower() == "sgd":
-            self.optimizer = optim.RMSprop(list(self.q_net.parameters()) + list(self.q_head_params))
-            self.actor_optimizer = optim.SGD(list(self.surr_q_net.parameters()) + 
-                                         list(self.actor.parameters()) + list(self.surr_q_head_params), 
+            self.optimizer = optim.RMSprop(list(self.q_net.parameters()))
+            self.actor_optimizer = optim.SGD(list(self.actor.parameters()) + self.actor_head_params, 
                                          lr=sgd_config["lr"],
                                          momentum=sgd_config["momentum"],
                                          maximize=True)
@@ -1001,10 +979,14 @@ class SRNashActorCriticAgent(BaseAgent):
                                               list(self.actor.parameters()) + list(self.surr_q_head_params), 
                                               lr=sgd_config["lr"],
                                               maximize=True)
-
+    
     def select_action(self, state, dist_b=None):
         self.steps_done += 1
-        dist = self.actor(torch.cat([state.flatten(), -1 * torch.ones(self.n_actions).to(self.device)]))
+        lstm_out = self.actor(state)
+        if dist_b == None:
+            dist = self.actor_head(torch.cat([lstm_out.flatten(), -1 * torch.ones(self.n_actions).to(self.device)]))
+        else:
+            dist = self.actor_head(torch.cat([lstm_out.flatten(), dist_b]))
 
         return dist
 
@@ -1021,25 +1003,33 @@ class SRNashActorCriticAgent(BaseAgent):
 
         return state_action_values
 
-    def optimize_model(self, is_inducer):
-        # TODO: Reinforce estimation to optimize the policy (Could use soft actions as well)
+    def optimize_model(self, is_inducer, cum_steps):
         if len(self.buffer) < self.batch_size:
             return None, None
+        if cum_steps % (self.policy_hist_len * 2) == 0:
+            self.obs_history = []
+            self.act_history = []
+
         transitions = self.buffer.sample(self.batch_size)
 
         # Transpose the batch
-        batch = RfNashACTransition(*zip(*transitions))
+        batch = NashACTransition(*zip(*transitions))
 
         state_batch = torch.cat(batch.state)
         a_batch = torch.cat(batch.a)
         b_batch = torch.cat(batch.b)
         reward_batch = torch.cat(batch.reward)
 
+        one_hot_a_batch = torch.zeros((self.batch_size, self.n_actions)).to(self.device)
+        one_hot_b_batch = torch.zeros((self.batch_size, self.n_actions)).to(self.device)
+        one_hot_a_batch = one_hot_a_batch.scatter(1, a_batch.reshape(self.batch_size, 1), 1)
+        one_hot_b_batch = one_hot_b_batch.scatter(1, b_batch.reshape(self.batch_size, 1), 1)
+
         # Compute r(s_t, a_t, b_t)
         if self.model_type == "lstm":
-            state_action_values = self.lstm_q_net_forward(state_batch, a_batch, b_batch, False)
+            state_action_values = self.lstm_q_net_forward(state_batch, one_hot_a_batch, one_hot_b_batch, False)
         else:
-            state_a_b_batch = torch.cat([state_batch.reshape(self.batch_size, self.obs_size), a_batch, b_batch], dim=1)
+            state_a_b_batch = torch.cat([state_batch.reshape(self.batch_size, self.obs_size), one_hot_a_batch, one_hot_b_batch], dim=1)
             state_action_values = self.q_net(state_a_b_batch)
 
         # Compute the expected reward values
@@ -1055,50 +1045,48 @@ class SRNashActorCriticAgent(BaseAgent):
             param.grad.data.clamp_(-1, 1)
         self.optimizer.step()
 
-        # Set surrogate weights to Q-value function's weights
-        self.surr_q_net.load_state_dict(self.t_net.state_dict())
-        self.surr_q_head.load_state_dict(self.q_head.state_dict())
-
         # Use surrogate r^A(s, a, b), to optimize \pi^A(s)
         state, dist_b = self.transition
-        
+
         estimated_rewards = []
-        self.model.grid = state[0, 0, 0:self.obs_size].reshape(1, self.obs_size).cpu().detach().numpy()
+        curr_state = state[0, 0, 0:self.obs_size]
+        self.model.grid = curr_state.reshape(1, self.obs_size).cpu().detach().numpy()
         # Use surrogate r^A(s, a, b), and monte-carlo rollout to optimize \pi^A(s)
         for i in range(self.policy_hist_len):
-            last_state = state[:, 1: , :].reshape(1, self.history_len * self.obs_size).cpu().detach().numpy()
+            history = state[:, 1: , :].clone()
+            lstm_b_out = self.o_actor(state)
             if is_inducer:
-                dist_a = self.actor(torch.cat([state.flatten(), -1 * torch.ones(self.n_actions).to(self.device)]))
-                dist_b = self.o_actor(torch.cat([state.flatten(), dist_a.flatten()]))
+                dist_a = self.select_action(state)
+                dist_b = self.o_actor_head(torch.cat([lstm_b_out.flatten(), dist_a]))
             else:
-                dist_b = self.o_actor(torch.cat([state.flatten(), -1 * torch.ones(self.n_actions).to(self.device)]))
-                dist_a = self.actor(torch.cat([state.flatten(), dist_b.flatten()]))
+                dist_b = self.o_actor_head(torch.cat([lstm_b_out.flatten(), -1 * torch.ones(self.n_actions).to(self.device)]))
+                dist_a = self.select_action(state, dist_b)
 
-            action_a = np.array([np.random.choice(self.n_actions, p=dist_a.cpu().detach().numpy())])
-            action_b = np.array([np.random.choice(self.n_actions, p=dist_b.cpu().detach().numpy())])
+            action_a = torch.tensor([np.random.choice(self.n_actions, p=dist_a.cpu().detach().numpy())],
+                                    requires_grad=False,
+                                    device=self.device)
+            action_b = torch.tensor([np.random.choice(self.n_actions, p=dist_b.cpu().detach().numpy())],
+                                    requires_grad=False, 
+                                    device=self.device)
             
-            curr_state, rewards, done, _, _ = self.model.step((action_a, action_b))
-            curr_state = np.concatenate([curr_state, action_a.reshape(1, 1), action_b.reshape(1, 1)], axis=1)
+            last_state = curr_state 
+            obs, rewards, done, _, _ = self.model.step((action_a.cpu().detach().numpy(), action_b.cpu().detach().numpy()))
 
-            state = torch.tensor(np.expand_dims(np.concatenate([curr_state ,last_state]), 0), 
-                                 requires_grad=False, 
-                                 device=self.device,
-                                 dtype=torch.float32)
+            curr_state = torch.tensor(obs, dtype=torch.float32 , device=self.device)
+            curr_actions = torch.tensor([-1, -1], dtype=torch.float32 , device=self.device)
+            curr_state_and_actions = torch.cat([curr_state.flatten(), curr_actions], dim=0)
+            last_state_and_actions = torch.cat([last_state.flatten(), action_a, action_b], dim=0)
 
-            if self.model_type == "lstm":
-                estimated_reward = self.lstm_q_net_forward(state, 
-                                                           dist_a.reshape(1, self.n_actions), 
-                                                           dist_b.reshape(1, self.n_actions), 
-                                                           True)
-            else:
-                state_a_b_batch = torch.cat([state.reshape(1, self.obs_size * self.history_len), 
-                                            dist_a.reshape(1, self.n_actions), 
-                                            dist_b.reshape(1, self.n_actions)], 
-                                            dim=1)
-                estimated_reward = self.q_net(state_a_b_batch)
+            history[:, 1:, :] = history[:, 0:-1, :].clone()
+            history[0, 0] = last_state_and_actions
 
-            a_t_prob = torch.take(dist_a, torch.tensor(action_a, requires_grad=False, device=self.device))
-            b_t_prob = torch.take(dist_b, torch.tensor(action_b, requires_grad=False, device=self.device))
+            state = torch.cat([curr_state_and_actions.reshape((1, 1, self.obs_size + 2)), history.clone()], dim=1)
+
+            state_a_b_batch = torch.cat([curr_state.flatten(), dist_a, dist_b], dim=0)
+            estimated_reward = self.q_net(state_a_b_batch)
+
+            a_t_prob = torch.take(dist_a, action_a)
+            b_t_prob = torch.take(dist_b, action_b)
 
             estimated_reward = estimated_reward * a_t_prob * b_t_prob
             estimated_rewards.append(estimated_reward)

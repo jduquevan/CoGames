@@ -12,10 +12,11 @@ is_pc: False
 base_agent:
   gamma: 0.999
   buffer_size: 100000
-  hidden_size: 128
+  hidden_size: 64
   num_layers: 0
   batch_norm: False
   model_type: "mlp"
+  actor_type: "lstm"
   use_actions: False
   batch_size: 128
   history_len: 2

@@ -86,19 +86,12 @@ class MLPModel(nn.Module):
         self.hidden = []
         self.bns = []
         self.in_layer = nn.Linear(self.in_size, self.hidden_size)
-        for i in range(self.num_layers):
-            self.hidden.append(nn.Linear(self.hidden_size, self.hidden_size))
-            if self.batch_norm:
-                self.bns.append(nn.BatchNorm1d(hidden_size))
         self.out_layer = nn.Linear(self.hidden_size, self.out_size)
 
     def forward(self, x):
         x = F.relu(self.in_layer(x))
-        for i in range(self.num_layers):
-            if self.batch_norm:
-                x = F.relu(self.bns[i](self.hidden[i](x)))
-            else:
-                x = F.relu(self.hidden[i](x))
+        #x = F.relu(self.hidden_layer(x), inplace=False)
+
         return self.out_layer(x)
 
 class Actor(nn.Module):
@@ -139,14 +132,21 @@ class LSTMModel(nn.Module):
         x, hidden = self.lstm(x)
         return self.out_layer(x[:,-1,:])
 
-class LinearQHead(nn.Module):
-    def __init__(self, in_size, out_size):
-        super(LinearQHead, self).__init__()
+class LSTMHead(nn.Module):
+    def __init__(self, in_size, out_size, hidden_size=40, softmax=False, temperature=1):
+        super(LSTMHead, self).__init__()
 
         self.in_size = in_size
         self.out_size = out_size
+        self.hidden_size = hidden_size
+        self.softmax = softmax
+        self.temperature = temperature
 
-        self.linear = nn.Linear(self.in_size, self.out_size)
+        self.linear = nn.Linear(self.in_size, self.hidden_size)
+        self.out_layer = nn.Linear(self.hidden_size, self.out_size)
 
     def forward(self, x):
-        return self.linear(x)
+        x = F.relu(self.linear(x), inplace=False)
+        if self.softmax:
+            return F.softmax(self.out_layer(x)/self.temperature, dim=0)
+        return self.out_layer(x)
